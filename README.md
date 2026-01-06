@@ -1,4 +1,4 @@
-# MiRAGE: A M ultiagent Framework for Generating Multimodal Multihop Question-Answer Dataset for RAG Evaluation
+# MiRAGE: A Multiagent Framework for Generating Multimodal Multihop Question-Answer Dataset for RAG Evaluation
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.9+-blue.svg" alt="Python 3.9+">
@@ -390,7 +390,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ```bibtex
 @software{mirage2024,
-  title = {MiRAGE: A M ultiagent Framework for Generating Multimodal Multihop Question-Answer Dataset for RAG Evaluation},
+  title = {MiRAGE: A Multiagent Framework for Generating Multimodal Multihop Question-Answer Dataset for RAG Evaluation},
   author = {MiRAGE Authors},
   year = {2026},
   url = {https://github.com/ChandanKSahu/MiRAGE}
@@ -407,4 +407,5 @@ Apache License 2.0 - see [LICENSE](LICENSE)
 - [BERTopic](https://github.com/MaartenGr/BERTopic) for topic modeling
 - [FAISS](https://github.com/facebookresearch/faiss) for similarity search
 - [Docling](https://github.com/DS4SD/docling) for PDF processing
+
 
