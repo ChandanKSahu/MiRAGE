@@ -13,7 +13,7 @@ long_description = readme_path.read_text(encoding="utf-8") if readme_path.exists
 
 setup(
     name="mirage-benchmark",
-    version="1.0.0",
+    version="1.0.2",
     author="MiRAGE Authors",
     author_email="contact@example.com",
     description="A Multiagent Framework for Generating Multimodal Multihop QA Datasets for RAG Evaluation",
