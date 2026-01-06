@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.9+-blue.svg" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green.svg" alt="License">
-  <img src="https://img.shields.io/pypi/v/mirage-bench.svg" alt="PyPI">
+  <img src="https://img.shields.io/pypi/v/mirage-benchmark.svg" alt="PyPI">
 </p>
 
 **MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems. It automatically extracts domain expertise, builds complete context through iterative retrieval, and generates verified QA pairs from technical documents.
@@ -45,7 +45,7 @@
 ### From PyPI (Recommended)
 
 ```bash
-pip install mirage-bench
+pip install mirage-benchmark
 ```
 
 ### From Source (Development)
@@ -66,19 +66,19 @@ pip install -e ".[all]"
 
 ```bash
 # GPU support (CUDA-enabled embeddings and FAISS)
-pip install mirage-bench[gpu]
+pip install mirage-benchmark[gpu]
 
 # PDF processing (Docling for PDF to Markdown conversion)
-pip install mirage-bench[pdf]
+pip install mirage-benchmark[pdf]
 
 # Evaluation metrics (RAGAS and LangChain)
-pip install mirage-bench[eval]
+pip install mirage-benchmark[eval]
 
 # Development tools (testing, linting)
-pip install mirage-bench[dev]
+pip install mirage-benchmark[dev]
 
 # All dependencies
-pip install mirage-bench[all]
+pip install mirage-benchmark[all]
 ```
 
 ## Quick Start
