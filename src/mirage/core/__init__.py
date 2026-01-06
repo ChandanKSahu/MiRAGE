@@ -1,25 +1,32 @@
 """
 Core module for MiRAGE - LLM/VLM interfaces, prompts, and configuration.
+
+Imports are lazy to allow the package to be imported without a config file.
 """
 
-from mirage.core.llm import (
-    call_llm_simple,
-    call_vlm_interweaved,
-    call_vlm_with_multiple_images,
-    batch_call_vlm_interweaved,
-    setup_logging,
-    test_llm_connection,
-    test_vlm_connection,
-    BACKEND,
-    LLM_MODEL_NAME,
-    VLM_MODEL_NAME,
-    GEMINI_RPM,
-    GEMINI_BURST,
-)
 
-from mirage.core.prompts import PROMPTS, PROMPTS_CHUNK
+def __getattr__(name):
+    """Lazy import to avoid import-time config loading."""
+    # LLM functions
+    if name in ("call_llm_simple", "call_vlm_interweaved", "call_vlm_with_multiple_images",
+                "batch_call_vlm_interweaved", "setup_logging", "test_llm_connection",
+                "test_vlm_connection", "BACKEND", "LLM_MODEL_NAME", "VLM_MODEL_NAME",
+                "GEMINI_RPM", "GEMINI_BURST"):
+        from mirage.core import llm
+        return getattr(llm, name)
+    
+    # Prompts
+    if name in ("PROMPTS", "PROMPTS_CHUNK"):
+        from mirage.core import prompts
+        return getattr(prompts, name)
+    
+    # Config
+    if name in ("load_config", "get_config_value", "ConfigLoader"):
+        from mirage.core import config
+        return getattr(config, name)
+    
+    raise AttributeError(f"module 'mirage.core' has no attribute '{name}'")
 
-from mirage.core.config import load_config, get_config_value, ConfigLoader
 
 __all__ = [
     # LLM functions

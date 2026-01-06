@@ -14,7 +14,11 @@ _config_cache: Optional[Dict[str, Any]] = None
 
 
 def load_config(config_path: str = None) -> Dict[str, Any]:
-    """Load configuration from YAML file with caching."""
+    """Load configuration from YAML file with caching.
+    
+    Returns default configuration if config file not found.
+    This allows the package to be imported without a config file.
+    """
     global _config_cache
     
     if _config_cache is not None and config_path is None:
@@ -22,8 +26,15 @@ def load_config(config_path: str = None) -> Dict[str, Any]:
     
     path = Path(config_path) if config_path else _CONFIG_PATH
     
+    # If config file doesn't exist, return defaults
     if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
+        # Try workspace root config.yaml
+        workspace_config = Path.cwd() / "config.yaml"
+        if workspace_config.exists():
+            path = workspace_config
+        else:
+            # Return default configuration - allows import without config file
+            return _get_default_config()
     
     with open(path, 'r') as f:
         config = yaml.safe_load(f)
@@ -32,6 +43,49 @@ def load_config(config_path: str = None) -> Dict[str, Any]:
         _config_cache = config
     
     return config
+
+
+def _get_default_config() -> Dict[str, Any]:
+    """Return default configuration when no config file is available.
+    
+    This enables the package to be imported and basic operations to work
+    without requiring a config.yaml file upfront.
+    """
+    return {
+        'backend': {
+            'active': os.environ.get('LLM_BACKEND', 'GEMINI'),
+            'gemini': {
+                'llm_model': 'gemini-2.0-flash',
+                'vlm_model': 'gemini-2.0-flash',
+            },
+            'openai': {
+                'llm_model': 'gpt-4o-mini',
+                'vlm_model': 'gpt-4o',
+            },
+            'ollama': {
+                'base_url': 'http://localhost:11434',
+                'llm_model': 'llama3',
+                'vlm_model': 'llava',
+            }
+        },
+        'rate_limiting': {
+            'requests_per_minute': 60,
+            'burst_size': 15
+        },
+        'paths': {
+            'input_pdf_dir': 'data/documents',
+            'output_dir': 'output'
+        },
+        'parallel': {
+            'num_workers': 3,
+            'qa_max_workers': 6,
+            'dedup_max_workers': 4
+        },
+        'qa_generation': {
+            'num_qa_pairs': 100,
+            'type': 'multihop'
+        }
+    }
 
 
 def get_backend_config() -> Dict[str, Any]:

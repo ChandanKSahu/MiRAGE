@@ -14,95 +14,106 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 # ============================================================================
-# CONFIGURATION - Loaded from config.yaml
+# CONFIGURATION - Lazy loading to allow import without config file
 # ============================================================================
 
-# Try to load from config.yaml, fallback to defaults if not available
-try:
-    from mirage.core.config import get_backend_config, get_api_key, get_rate_limit_config, get_paths_config
-    
-    _backend_cfg = get_backend_config()
-    _rate_cfg = get_rate_limit_config()
-    _paths_cfg = get_paths_config()
-    
-    BACKEND = _backend_cfg['name']
-    API_URL = _backend_cfg.get('url', '')
-    LLM_MODEL_NAME = _backend_cfg.get('llm_model', '')
-    VLM_MODEL_NAME = _backend_cfg.get('vlm_model', '')
-    API_KEY = get_api_key()
-    
-    # Rate limiting from config
-    GEMINI_RPM = _rate_cfg.get('requests_per_minute', 60)
-    GEMINI_BURST = _rate_cfg.get('burst_size', 15)
-    
-    # Auto-generate log file names from dataset name and LLM model
-    _output_dir = _paths_cfg.get('output_dir', 'trials/results')
-    _input_pdf_dir = _paths_cfg.get('input_pdf_dir', 'data/unknown')
-    _dataset_name = Path(_input_pdf_dir).name  # e.g., "data/FinanceAnnualReports" → "FinanceAnnualReports"
-    _log_basename = f"{_dataset_name}_{LLM_MODEL_NAME}.log"
-    
-    LOG_FILE = os.path.join(_output_dir, _log_basename)
-    TERMINAL_LOG_FILE = os.path.join(_output_dir, f"terminal_{_log_basename}")
-    
-    _CONFIG_LOADED = True
-    
-except ImportError:
-    print("⚠️ config_loader not found, using defaults")
-    _CONFIG_LOADED = False
-    
-    # Fallback defaults
-    BACKEND = os.environ.get("LLM_BACKEND", "GEMINI")
-    GEMINI_RPM = int(os.environ.get("GEMINI_RPM", "60"))
-    GEMINI_BURST = int(os.environ.get("GEMINI_BURST", "15"))
-    LOG_FILE = os.environ.get("LOG_FILE", "trials/pipeline.log")
-    TERMINAL_LOG_FILE = os.environ.get("TERMINAL_LOG_FILE", "trials/terminal_pipeline.log")
-    
-    # Default URLs
-    _URLS = {
-        "OLLAMA": "http://127.0.0.1:11434/api/chat",
-        "GEMINI": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-        "OPENAI": "https://api.openai.com/v1/chat/completions"
-    }
-    
-    # Default models
-    _MODELS = {
-        "OLLAMA": ("llama3.1:8b", "llava:13b"),
-        "GEMINI": ("gemini-2.0-flash", "gemini-2.0-flash"),
-        "OPENAI": ("gpt-4o-mini", "gpt-4o")
-    }
-    
-    # Default API key paths (use environment variables or config file)
-    _API_KEY_PATHS = {
-        "GEMINI": os.path.expanduser("~/.config/gemini/api_key.txt"),
-        "OPENAI": os.path.expanduser("~/.config/openai/api_key.txt")
-    }
-    
-    API_URL = _URLS.get(BACKEND, _URLS["GEMINI"])
-    LLM_MODEL_NAME, VLM_MODEL_NAME = _MODELS.get(BACKEND, _MODELS["GEMINI"])
-    
-    # Load API key
-    API_KEY = ""
-    if BACKEND in _API_KEY_PATHS:
-        try:
-            with open(_API_KEY_PATHS[BACKEND], 'r') as f:
-                API_KEY = f.read().strip()
-        except FileNotFoundError:
-            print(f"⚠️ API key not found for {BACKEND}")
-
-# Set headers based on backend
-if BACKEND == "GEMINI":
-    HEADERS = {"Content-Type": "application/json"}  # API key in query param
-elif BACKEND == "OLLAMA":
-    HEADERS = {"Content-Type": "application/json"}
-else:  # OPENAI and other OpenAI-compatible backends
-    HEADERS = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-
-# For backwards compatibility with direct GEMINI_URL usage
+# Default values - actual values loaded lazily when needed
+_config_initialized = False
+BACKEND = os.environ.get("LLM_BACKEND", "GEMINI")
+API_URL = ""
+LLM_MODEL_NAME = ""
+VLM_MODEL_NAME = ""
+API_KEY = ""
+GEMINI_RPM = int(os.environ.get("GEMINI_RPM", "60"))
+GEMINI_BURST = int(os.environ.get("GEMINI_BURST", "15"))
+LOG_FILE = os.environ.get("LOG_FILE", "output/pipeline.log")
+TERMINAL_LOG_FILE = os.environ.get("TERMINAL_LOG_FILE", "output/terminal_pipeline.log")
+HEADERS = {"Content-Type": "application/json"}
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-print(f"🔧 Backend: {BACKEND} | LLM: {LLM_MODEL_NAME} | VLM: {VLM_MODEL_NAME} | RPM: {GEMINI_RPM}")
-print(f"📝 Log file: {LOG_FILE}")
-print(f"📝 Terminal log: {TERMINAL_LOG_FILE}")
+# Default URLs and Models
+_DEFAULT_URLS = {
+    "OLLAMA": "http://127.0.0.1:11434/api/chat",
+    "GEMINI": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+    "OPENAI": "https://api.openai.com/v1/chat/completions"
+}
+
+_DEFAULT_MODELS = {
+    "OLLAMA": ("llama3.1:8b", "llava:13b"),
+    "GEMINI": ("gemini-2.0-flash", "gemini-2.0-flash"),
+    "OPENAI": ("gpt-4o-mini", "gpt-4o")
+}
+
+
+def _initialize_config():
+    """Initialize configuration lazily on first use.
+    
+    This is called before any LLM/VLM call to ensure config is loaded.
+    Allows the module to be imported without a config file.
+    """
+    global _config_initialized, BACKEND, API_URL, LLM_MODEL_NAME, VLM_MODEL_NAME
+    global API_KEY, GEMINI_RPM, GEMINI_BURST, LOG_FILE, TERMINAL_LOG_FILE, HEADERS
+    
+    if _config_initialized:
+        return
+    
+    try:
+        from mirage.core.config import get_backend_config, get_api_key, get_rate_limit_config, get_paths_config
+        
+        _backend_cfg = get_backend_config()
+        _rate_cfg = get_rate_limit_config()
+        _paths_cfg = get_paths_config()
+        
+        BACKEND = _backend_cfg['name']
+        API_URL = _backend_cfg.get('url', _DEFAULT_URLS.get(BACKEND, ''))
+        LLM_MODEL_NAME = _backend_cfg.get('llm_model', _DEFAULT_MODELS.get(BACKEND, ('', ''))[0])
+        VLM_MODEL_NAME = _backend_cfg.get('vlm_model', _DEFAULT_MODELS.get(BACKEND, ('', ''))[1])
+        API_KEY = get_api_key()
+        
+        # Rate limiting from config
+        GEMINI_RPM = _rate_cfg.get('requests_per_minute', 60)
+        GEMINI_BURST = _rate_cfg.get('burst_size', 15)
+        
+        # Auto-generate log file names from dataset name and LLM model
+        _output_dir = _paths_cfg.get('output_dir', 'output')
+        _input_pdf_dir = _paths_cfg.get('input_pdf_dir', 'data/documents')
+        _dataset_name = Path(_input_pdf_dir).name
+        _log_basename = f"{_dataset_name}_{LLM_MODEL_NAME}.log"
+        
+        LOG_FILE = os.path.join(_output_dir, _log_basename)
+        TERMINAL_LOG_FILE = os.path.join(_output_dir, f"terminal_{_log_basename}")
+        
+    except Exception:
+        # Use environment variables and defaults
+        BACKEND = os.environ.get("LLM_BACKEND", "GEMINI")
+        API_URL = _DEFAULT_URLS.get(BACKEND, _DEFAULT_URLS["GEMINI"])
+        LLM_MODEL_NAME, VLM_MODEL_NAME = _DEFAULT_MODELS.get(BACKEND, _DEFAULT_MODELS["GEMINI"])
+        
+        # Try to load API key from environment
+        API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+    
+    # Set headers based on backend
+    if BACKEND == "GEMINI":
+        HEADERS = {"Content-Type": "application/json"}
+    elif BACKEND == "OLLAMA":
+        HEADERS = {"Content-Type": "application/json"}
+    else:
+        HEADERS = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    
+    _config_initialized = True
+
+
+def test_llm_connection() -> bool:
+    """Test LLM API connection."""
+    _initialize_config()
+    print(f"Testing LLM connection to {BACKEND}...")
+    try:
+        response = call_llm_simple("Say 'Hello' in one word.")
+        print(f"LLM connection successful: {response[:50]}...")
+        return True
+    except Exception as e:
+        print(f"LLM connection failed: {e}")
+        return False
 
 # ============================================================================
 # CORE UTILITY FUNCTIONS
@@ -201,7 +212,8 @@ def test_vlm_connection(test_image: str = None) -> bool:
 
 def call_llm_simple(prompt: str) -> str:
     """Simple LLM call with text-only input. Supports OLLAMA, GEMINI, OPENAI."""
-    print(f"🤖 Calling LLM (text-only) via {BACKEND}...")
+    _initialize_config()
+    print(f"Calling LLM (text-only) via {BACKEND}...")
     attempt = 0
     wait_time = 2
     
@@ -282,7 +294,8 @@ def call_llm_simple(prompt: str) -> str:
 
 def call_vlm_simple(prompt: str, image_path: str) -> str:
     """Simple VLM call with single image. Supports OLLAMA, GEMINI, OPENAI."""
-    print(f"👁️ Calling VLM (simple) via {BACKEND}...")
+    _initialize_config()
+    print(f"Calling VLM (simple) via {BACKEND}...")
     attempt = 0
     wait_time = 2
     
@@ -387,7 +400,8 @@ def call_vlm_simple(prompt: str, image_path: str) -> str:
 
 def call_vlm_with_examples(prompt: str, query_image_path: str, example_image_paths: List[str]) -> str:
     """VLM call with multiple example images and query image"""
-    print(f"👁️ Calling VLM with examples via {BACKEND}...")
+    _initialize_config()
+    print(f"Calling VLM with examples via {BACKEND}...")
     attempt = 0
     wait_time = 2
     
@@ -468,7 +482,8 @@ def call_vlm_with_examples(prompt: str, query_image_path: str, example_image_pat
 
 def call_vlm_with_multiple_images(prompt: str, image_paths: List[str]) -> str:
     """VLM call with multiple images for reranking"""
-    print(f"👁️ Calling VLM with {len(image_paths)} images via {BACKEND}...")
+    _initialize_config()
+    print(f"Calling VLM with {len(image_paths)} images via {BACKEND}...")
     attempt = 0
     wait_time = 2
     
@@ -640,7 +655,8 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
                1. Old format: {'content': str, 'image_path': str|None}
                2. JSON format: {'chunk_type': str, 'content': str, 'artifact': str}
     """
-    print(f"👁️ Calling VLM with {len(chunks)} chunks (interweaved) via {BACKEND}...")
+    _initialize_config()
+    print(f"Calling VLM with {len(chunks)} chunks (interweaved) via {BACKEND}...")
     attempt = 0
     wait_time = 2
     
