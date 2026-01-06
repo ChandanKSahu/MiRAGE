@@ -28,13 +28,14 @@
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
 - [Configuration](#configuration)
 - [Pipeline Overview](#pipeline-overview)
 - [Usage](#usage)
 - [Output Format](#output-format)
 - [Evaluation Metrics](#evaluation-metrics)
 - [Hyperparameter Guide](#hyperparameter-guide)
-- [Core Modules](#core-modules)
+- [API Keys Setup](#api-keys-setup)
 - [Contributing](#contributing)
 - [Citation](#citation)
 - [License](#license)
@@ -47,7 +48,7 @@
 pip install mirage-bench
 ```
 
-### From Source
+### From Source (Development)
 
 ```bash
 # Clone the repository
@@ -57,8 +58,8 @@ cd MiRAGE
 # Install in development mode
 pip install -e .
 
-# Or install with setup.py
-python setup.py install
+# Or install with all optional dependencies
+pip install -e ".[all]"
 ```
 
 ### With Optional Dependencies
@@ -80,82 +81,111 @@ pip install mirage-bench[dev]
 pip install mirage-bench[all]
 ```
 
-### Manual Installation (from requirements.txt)
+## Quick Start
+
+### 1. Clone and Install
 
 ```bash
 git clone https://github.com/ChandanKSahu/MiRAGE.git
 cd MiRAGE
-pip install -r requirements.txt
-
-# Optional: Install additional dependencies as needed
-pip install faiss-gpu bitsandbytes accelerate  # GPU support
-pip install docling pypdfium2  # PDF processing
-pip install ragas datasets langchain langchain-google-genai  # Evaluation
+pip install -e .
 ```
 
-## Quick Start
+### 2. Add Your Documents
 
-### 1. Add Your Data
-
-Place your documents in the `data/documents/` folder:
+Place your PDF, HTML, or other documents in the `data/documents/` folder:
 
 ```bash
-# Create data directory if it doesn't exist
-mkdir -p data/documents
-
-# Add your PDF, HTML, or other supported documents
-cp /path/to/your/documents/*.pdf data/documents/
+# The folder structure should look like:
+data/
+└── documents/
+    ├── document1.pdf
+    ├── document2.pdf
+    └── ...
 ```
 
-**Supported formats:** PDF, HTML, XHTML
+A sample dataset (`data/FinanceAnnualReports.zip`) is included for testing.
 
-### 2. Set Up Configuration
+### 3. Configure API Keys
+
+Create your configuration file:
 
 ```bash
 cp config.yaml.example config.yaml
 ```
 
-Edit `config.yaml` with your API keys and paths:
+Edit `config.yaml` to add your API keys:
 
 ```yaml
 backend:
-  active: GEMINI
+  active: GEMINI  # Options: GEMINI, OPENAI, OLLAMA
+  
   gemini:
-    api_key_path: ~/.config/gemini/api_key.txt  # Or set GEMINI_API_KEY env var
+    api_key_path: ~/.config/gemini/api_key.txt
+    # Or use environment variable: export GEMINI_API_KEY="your-key"
+    
+  openai:
+    api_key_path: ~/.config/openai/api_key.txt
+    # Or use environment variable: export OPENAI_API_KEY="your-key"
+    
+  ollama:
+    base_url: http://localhost:11434
+    # No API key needed for local Ollama
 
 paths:
-  input_pdf_dir: data/documents  # Your data folder
+  input_pdf_dir: data/documents
   output_dir: output/my_dataset
 ```
 
-### 3. Run Preflight Checks
+### 4. Run Preflight Checks
 
 ```bash
-python preflight_check.py
+python run_mirage.py --preflight
 ```
 
-### 4. Generate QA Dataset
+### 5. Generate QA Dataset
 
 ```bash
-python main.py
+python run_mirage.py
 ```
 
-### Expected Directory Structure
+## Project Structure
 
 ```
 MiRAGE/
-├── data/
-│   └── documents/          # Add your PDFs/HTMLs here
-│       ├── document1.pdf
-│       ├── document2.pdf
-│       └── ...
-├── output/                 # Generated results appear here
-│   └── my_dataset/
-│       ├── chunks.json
-│       ├── qa_deduplicated.json
-│       └── ...
-├── config.yaml             # Your configuration
-└── ...
+├── src/mirage/                 # Main package
+│   ├── __init__.py            # Package exports
+│   ├── cli.py                 # Command line interface
+│   ├── core/                  # Core functionality
+│   │   ├── llm.py            # LLM/VLM API interfaces
+│   │   ├── prompts.py        # Prompt templates
+│   │   └── config.py         # Configuration management
+│   ├── embeddings/            # Embedding models
+│   │   ├── models.py         # Embedding model classes
+│   │   ├── rerankers_multimodal.py
+│   │   └── rerankers_text.py
+│   ├── pipeline/              # Processing pipeline
+│   │   ├── pdf_processor.py  # PDF to Markdown
+│   │   ├── chunker.py        # Semantic chunking
+│   │   ├── context.py        # Multi-hop retrieval
+│   │   ├── qa_generator.py   # QA generation
+│   │   ├── domain.py         # Domain extraction
+│   │   └── deduplication.py  # Deduplication
+│   ├── evaluation/            # Metrics
+│   │   ├── metrics.py
+│   │   └── metrics_optimized.py
+│   └── utils/                 # Utilities
+│       ├── preflight.py      # Preflight checks
+│       ├── stats.py          # Dataset statistics
+│       └── ablation.py       # Ablation studies
+├── data/                      # Your documents go here
+│   └── documents/            # Input PDFs/HTMLs
+├── output/                    # Generated results
+├── assets/                    # Documentation images
+├── config.yaml.example        # Example configuration
+├── run_mirage.py             # Main entry point
+├── setup.py                   # Package setup
+└── README.md
 ```
 
 ## Configuration
@@ -174,16 +204,48 @@ MiRAGE uses a YAML configuration file. Key sections:
 
 See [`config.yaml.example`](config.yaml.example) for full documentation.
 
-### Environment Variables
+## API Keys Setup
+
+### Google Gemini
 
 ```bash
-export GEMINI_API_KEY="your-key"  # Google Gemini
-export OPENAI_API_KEY="your-key"  # OpenAI
+# Option 1: Environment variable
+export GEMINI_API_KEY="your-gemini-api-key"
+
+# Option 2: File (create the directory first)
+mkdir -p ~/.config/gemini
+echo "your-gemini-api-key" > ~/.config/gemini/api_key.txt
+```
+
+### OpenAI
+
+```bash
+# Option 1: Environment variable
+export OPENAI_API_KEY="your-openai-api-key"
+
+# Option 2: File
+mkdir -p ~/.config/openai
+echo "your-openai-api-key" > ~/.config/openai/api_key.txt
+```
+
+### Ollama (Local)
+
+No API key needed. Just install and start Ollama:
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull models
+ollama pull llama3
+ollama pull llava
+
+# Ollama runs on http://localhost:11434 by default
 ```
 
 ## Pipeline Overview
 
-The MiRAGE framework operates through a multi-stage pipeline that transforms raw documents into high-quality QA datasets:
+The MiRAGE framework operates through a multi-stage pipeline:
 
 ```
 +------------------------------------------------------------------+
@@ -234,66 +296,49 @@ The MiRAGE framework operates through a multi-stage pipeline that transforms raw
 ### Full Pipeline
 
 ```bash
-python main.py
+# Using the entry script
+python run_mirage.py
+
+# Or using the CLI (after pip install -e .)
+mirage --config config.yaml
 ```
 
 ### Individual Components
 
 ```bash
-# Preflight checks
-python preflight_check.py
+# Preflight checks only
+python run_mirage.py --preflight
 
-# QA generation only
-python qa_gen_multi_hop.py
+# With custom config
+python run_mirage.py --config my_config.yaml
 
-# Deduplication only
-python deduplication.py
+# Skip preflight checks
+python run_mirage.py --skip-preflight
 
-# Evaluation only
-python metrics_optimized.py path/to/qa.json output_dir/
-
-# Domain extraction
-python domain_expert.py
+# Verbose output
+python run_mirage.py --verbose
 ```
 
 ### Programmatic Usage
 
 ```python
-from main import (
-    load_chunks,
-    embed_all_chunks,
-    get_domain_and_expert,
-    generate_qa_dataset_parallel,
-    deduplicate_qa_dataset_parallel
-)
+from mirage.core import call_llm_simple, setup_logging
+from mirage.pipeline import build_complete_context, generate_qa_for_chunk
+from mirage.embeddings import get_best_embedding_model
 
-# Load your chunks
-chunks = load_chunks("path/to/chunks.json")
+# Setup logging
+setup_logging()
 
-# Embed and index
-embeddings_dir, embeddings, chunk_ids = embed_all_chunks(
-    chunks, chunks_file, output_dir
-)
+# Load embedding model
+embedder = get_best_embedding_model()
 
-# Extract domain
-domain, expert = get_domain_and_expert(chunks_file, embeddings)
-
-# Generate QA pairs
-successful, failed, contexts, stats = generate_qa_dataset_parallel(
-    chunks, domain, expert
-)
-
-# Deduplicate
-deduplicate_qa_dataset_parallel(
-    input_file, output_file, expert, domain
-)
+# Generate QA for a chunk
+qa_pairs = generate_qa_for_chunk(chunk, domain="Finance", expert="Financial Analyst")
 ```
 
 ## Output Format
 
 ### Sample Generated Question-Answer Pair
-
-MiRAGE generates comprehensive QA pairs with full context traceability:
 
 <p align="center">
   <img src="assets/ample question-answer pair generated.png" alt="Sample Generated QA Pair" width="100%">
@@ -317,26 +362,16 @@ MiRAGE generates comprehensive QA pairs with full context traceability:
 ]
 ```
 
-### Evaluation Report (subset_evaluation_report.json)
+### Output Directory Structure
 
-```json
-{
-  "ragas_metrics": {
-    "faithfulness": 0.85,
-    "answer_relevancy": 0.82,
-    "context_precision": 0.78,
-    "context_recall": 0.80
-  },
-  "multihop_metrics": {
-    "avg_reasoning_score": 0.75
-  },
-  "multimodal_metrics": {
-    "avg_visual_dependency": 0.65
-  },
-  "context_necessity": {
-    "avg_context_necessity_score": 0.88
-  }
-}
+```
+output/my_dataset/
+├── markdown/              # Converted markdown files
+├── chunks.json           # Semantic chunks
+├── embeddings/           # FAISS index and embeddings
+├── qa_dataset.json       # Raw QA pairs
+├── qa_deduplicated.json  # Final deduplicated QA pairs
+└── evaluation_report.json # Metrics and statistics
 ```
 
 ## Evaluation Metrics
@@ -369,22 +404,6 @@ MiRAGE generates comprehensive QA pairs with full context traceability:
 | **Quick Testing** | 2 | 2 | 1 |
 | **Balanced (Default)** | 10 | 5 | 2 |
 | **Thorough** | 20 | 10 | 3 |
-
-## Core Modules
-
-| Module | Description |
-|--------|-------------|
-| `main.py` | Pipeline orchestration |
-| `config_loader.py` | Configuration management |
-| `preflight_check.py` | Service validation |
-| `context_retrieved.py` | Multi-hop retrieval |
-| `qa_gen_multi_hop.py` | QA generation and verification |
-| `deduplication.py` | Hierarchical deduplication |
-| `domain_expert.py` | Domain/expert extraction |
-| `embed_models.py` | Embedding model interfaces |
-| `call_llm.py` | LLM/VLM API interface |
-| `metrics_optimized.py` | Evaluation metrics |
-| `prompt.py` | Prompt templates |
 
 ## Contributing
 
