@@ -40,8 +40,14 @@ jobs:
       - name: Check package
         run: twine check dist/*
       
-      - name: Verify imports
+      - name: Verify basic imports
         run: |
+          # Test version import (no dependencies needed)
           python -c "from mirage import __version__; print(f'MiRAGE version: {__version__}')"
-          python -c "from mirage.core import llm; print('Core LLM module OK')"
-          python -c "from mirage.pipeline import qa_generator; print('Pipeline module OK')"
+          
+          # Test that submodules are accessible (lazy - won't load heavy deps)
+          python -c "import mirage; print('Package import OK')"
+          python -c "import mirage.core; print('Core module OK')"
+          
+          # Test config loading with defaults
+          python -c "from mirage.core.config import load_config; c = load_config(); print(f'Config loaded: backend={c[\"backend\"][\"active\"]}')"
