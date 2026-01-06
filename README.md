@@ -14,7 +14,7 @@
 
 ## Key Features
 
-- **Multi-hop Context Completion**: Iteratively expands incomplete chunks with relevant context
+- **Multi-hop Context Completion**: Iteratively expands incomplete chunks with relevant context.
 - **Domain and Expert Role Detection**: Automatic domain identification using BERTopic + LLM
 - **Multi-stage QA Pipeline**: Generate, Select, Verify, Correct for quality assurance
 - **Multimodal Support**: Handles text, tables, figures, and images
@@ -424,6 +424,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE)
+
 
 
 
