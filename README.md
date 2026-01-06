@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/pypi/v/mirage-benchmark.svg" alt="PyPI">
 </p>
 
-**MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems. It automatically extracts domain expertise, builds complete context through iterative retrieval, and generates verified QA pairs from technical documents.
+**MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems.
 
 <p align="center">
   <img src="assets/mirage_framework.png" alt="MiRAGE Framework Architecture" width="100%">
@@ -14,414 +14,383 @@
 
 ## Key Features
 
-- **Multi-hop Context Completion**: Iteratively expands incomplete chunks with relevant context across documents
+- **Multi-hop Context Completion**: Iteratively expands incomplete chunks with relevant context
 - **Domain and Expert Role Detection**: Automatic domain identification using BERTopic + LLM
 - **Multi-stage QA Pipeline**: Generate, Select, Verify, Correct for quality assurance
-- **Multimodal Support**: Handles text, tables, figures, and images in documents
-- **Cross-Document Retrieval**: Unified FAISS index enables retrieval across all documents
-- **Hierarchical Deduplication**: Two-stage clustering with LLM-based merging
+- **Multimodal Support**: Handles text, tables, figures, and images
 - **Multiple Backend Support**: Gemini, OpenAI, and local Ollama models
-- **Optimized Evaluation**: 3-5x faster metrics with harmonized RAGAS implementation
 - **Fully Parallelized**: Thread and process pools for maximum throughput
 
 ## Table of Contents
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Pipeline Overview](#pipeline-overview)
 - [Usage](#usage)
-- [Output Format](#output-format)
-- [Evaluation Metrics](#evaluation-metrics)
-- [Hyperparameter Guide](#hyperparameter-guide)
 - [API Keys Setup](#api-keys-setup)
+- [Configuration](#configuration)
+- [Command Line Options](#command-line-options)
+- [Output Format](#output-format)
+- [Project Structure](#project-structure)
 - [Contributing](#contributing)
-- [Citation](#citation)
 - [License](#license)
 
 ## Installation
 
-### From PyPI (Recommended)
+### From PyPI
 
 ```bash
 pip install mirage-benchmark
 ```
 
-### From Source (Development)
+### From Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/ChandanKSahu/MiRAGE.git
 cd MiRAGE
-
-# Install in development mode
 pip install -e .
-
-# Or install with all optional dependencies
-pip install -e ".[all]"
 ```
 
 ### With Optional Dependencies
 
 ```bash
-# GPU support (CUDA-enabled embeddings and FAISS)
-pip install mirage-benchmark[gpu]
-
-# PDF processing (Docling for PDF to Markdown conversion)
-pip install mirage-benchmark[pdf]
-
-# Evaluation metrics (RAGAS and LangChain)
-pip install mirage-benchmark[eval]
-
-# Development tools (testing, linting)
-pip install mirage-benchmark[dev]
-
-# All dependencies
-pip install mirage-benchmark[all]
+pip install mirage-benchmark[gpu]   # GPU support
+pip install mirage-benchmark[pdf]   # PDF processing
+pip install mirage-benchmark[all]   # All dependencies
 ```
 
 ## Quick Start
 
-### 1. Clone and Install
+### Step 1: Set Up API Key
+
+Choose one of the following backends:
+
+**Option A: Google Gemini (Recommended)**
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+```
+
+**Option B: OpenAI**
+```bash
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+**Option C: Local Ollama (No API key needed)**
+```bash
+# Install and start Ollama
+ollama serve
+ollama pull llama3
+```
+
+### Step 2: Prepare Your Data
+
+Place your documents in a folder:
+```bash
+mkdir -p data/my_documents
+cp /path/to/your/*.pdf data/my_documents/
+```
+
+### Step 3: Run MiRAGE
 
 ```bash
-git clone https://github.com/ChandanKSahu/MiRAGE.git
-cd MiRAGE
-pip install -e .
+# Basic usage
+python run_mirage.py --input data/my_documents --output output/my_dataset
+
+# With API key as argument
+python run_mirage.py -i data/my_documents -o output/my_dataset --api-key YOUR_API_KEY
+
+# Using OpenAI
+python run_mirage.py -i data/my_documents -o output/my_dataset --backend openai
+
+# Using local Ollama
+python run_mirage.py -i data/my_documents -o output/my_dataset --backend ollama
 ```
 
-### 2. Add Your Documents
-
-Place your PDF, HTML, or other documents in the `data/documents/` folder:
+### Step 4: Check Results
 
 ```bash
-# The folder structure should look like:
-data/
-└── documents/
-    ├── document1.pdf
-    ├── document2.pdf
-    └── ...
+ls output/my_dataset/
+# qa_deduplicated.json  - Final QA dataset
+# chunks.json           - Semantic chunks
+# evaluation_report.json - Quality metrics
 ```
 
-A sample dataset (`data/FinanceAnnualReports.zip`) is included for testing.
+## Usage
 
-### 3. Configure API Keys
-
-Create your configuration file:
+### Basic Usage
 
 ```bash
-cp config.yaml.example config.yaml
+python run_mirage.py --input <INPUT_DIR> --output <OUTPUT_DIR>
 ```
 
-Edit `config.yaml` to add your API keys:
+### With All Options
 
-```yaml
-backend:
-  active: GEMINI  # Options: GEMINI, OPENAI, OLLAMA
-  
-  gemini:
-    api_key_path: ~/.config/gemini/api_key.txt
-    # Or use environment variable: export GEMINI_API_KEY="your-key"
-    
-  openai:
-    api_key_path: ~/.config/openai/api_key.txt
-    # Or use environment variable: export OPENAI_API_KEY="your-key"
-    
-  ollama:
-    base_url: http://localhost:11434
-    # No API key needed for local Ollama
-
-paths:
-  input_pdf_dir: data/documents
-  output_dir: output/my_dataset
+```bash
+python run_mirage.py \
+    --input data/documents \
+    --output output/results \
+    --backend gemini \
+    --api-key YOUR_API_KEY \
+    --num-qa-pairs 100 \
+    --max-workers 4 \
+    --verbose
 ```
 
-### 4. Run Preflight Checks
+### Run Preflight Checks
+
+Before running the full pipeline, verify your setup:
 
 ```bash
 python run_mirage.py --preflight
 ```
 
-### 5. Generate QA Dataset
+### Using Sample Dataset
+
+A sample dataset is included for testing:
 
 ```bash
-python run_mirage.py
+# Unzip sample data
+unzip data/FinanceAnnualReports.zip -d data/sample/
+
+# Run on sample
+python run_mirage.py -i data/sample -o output/sample_results
 ```
-
-## Project Structure
-
-```
-MiRAGE/
-├── src/mirage/                 # Main package
-│   ├── __init__.py            # Package exports
-│   ├── cli.py                 # Command line interface
-│   ├── core/                  # Core functionality
-│   │   ├── llm.py            # LLM/VLM API interfaces
-│   │   ├── prompts.py        # Prompt templates
-│   │   └── config.py         # Configuration management
-│   ├── embeddings/            # Embedding models
-│   │   ├── models.py         # Embedding model classes
-│   │   ├── rerankers_multimodal.py
-│   │   └── rerankers_text.py
-│   ├── pipeline/              # Processing pipeline
-│   │   ├── pdf_processor.py  # PDF to Markdown
-│   │   ├── chunker.py        # Semantic chunking
-│   │   ├── context.py        # Multi-hop retrieval
-│   │   ├── qa_generator.py   # QA generation
-│   │   ├── domain.py         # Domain extraction
-│   │   └── deduplication.py  # Deduplication
-│   ├── evaluation/            # Metrics
-│   │   ├── metrics.py
-│   │   └── metrics_optimized.py
-│   └── utils/                 # Utilities
-│       ├── preflight.py      # Preflight checks
-│       ├── stats.py          # Dataset statistics
-│       └── ablation.py       # Ablation studies
-├── data/                      # Your documents go here
-│   └── documents/            # Input PDFs/HTMLs
-├── output/                    # Generated results
-├── assets/                    # Documentation images
-├── config.yaml.example        # Example configuration
-├── run_mirage.py             # Main entry point
-├── setup.py                   # Package setup
-└── README.md
-```
-
-## Configuration
-
-MiRAGE uses a YAML configuration file. Key sections:
-
-| Section | Description |
-|---------|-------------|
-| `backend` | LLM/VLM provider settings (Gemini, OpenAI, Ollama) |
-| `paths` | Input documents and output directory |
-| `qa_generation` | Target QA pairs and type (multihop/multimodal/text) |
-| `embedding` | Embedding model and batch size |
-| `retrieval` | Multi-hop retrieval parameters |
-| `deduplication` | Similarity thresholds for deduplication |
-| `evaluation` | Metrics and evaluation settings |
-
-See [`config.yaml.example`](config.yaml.example) for full documentation.
 
 ## API Keys Setup
 
 ### Google Gemini
 
+1. Get API key from: https://makersuite.google.com/app/apikey
+2. Set environment variable:
 ```bash
-# Option 1: Environment variable
-export GEMINI_API_KEY="your-gemini-api-key"
+export GEMINI_API_KEY="your-key-here"
+```
 
-# Option 2: File (create the directory first)
+Or create a file:
+```bash
 mkdir -p ~/.config/gemini
-echo "your-gemini-api-key" > ~/.config/gemini/api_key.txt
+echo "your-key-here" > ~/.config/gemini/api_key.txt
 ```
 
 ### OpenAI
 
+1. Get API key from: https://platform.openai.com/api-keys
+2. Set environment variable:
 ```bash
-# Option 1: Environment variable
-export OPENAI_API_KEY="your-openai-api-key"
-
-# Option 2: File
-mkdir -p ~/.config/openai
-echo "your-openai-api-key" > ~/.config/openai/api_key.txt
+export OPENAI_API_KEY="your-key-here"
 ```
 
-### Ollama (Local)
+### Ollama (Local - Free)
 
-No API key needed. Just install and start Ollama:
+No API key needed! Just install Ollama:
 
 ```bash
-# Install Ollama
+# Install
 curl -fsSL https://ollama.com/install.sh | sh
 
+# Start server
+ollama serve
+
 # Pull models
-ollama pull llama3
-ollama pull llava
-
-# Ollama runs on http://localhost:11434 by default
+ollama pull llama3      # For text
+ollama pull llava       # For vision
 ```
 
-## Pipeline Overview
+## Configuration
 
-The MiRAGE framework operates through a multi-stage pipeline:
+### Using config.yaml
 
-```
-+------------------------------------------------------------------+
-|  STEP 1: Document Processing                                      |
-|  PDF/HTML -> Markdown -> Semantic Chunks                          |
-+--------------------------------+---------------------------------+
-                                 |
-                                 v
-+------------------------------------------------------------------+
-|  STEP 2: Embedding and Indexing                                   |
-|  Embed all chunks -> Build unified FAISS index                    |
-+--------------------------------+---------------------------------+
-                                 |
-                                 v
-+------------------------------------------------------------------+
-|  STEP 3: Domain and Expert Extraction                             |
-|  BERTopic analysis -> LLM domain/role identification              |
-+--------------------------------+---------------------------------+
-                                 |
-                                 v
-+------------------------------------------------------------------+
-|  STEP 4: QA Generation (per chunk, parallel)                      |
-|  +--------------------------------------------------------------+ |
-|  | 4.1 Verify chunk completeness                                | |
-|  | 4.2 Multi-hop retrieval for incomplete chunks                | |
-|  | 4.3 Generate QA pairs from complete context                  | |
-|  | 4.4 Select high-quality pairs                                | |
-|  | 4.5 Verify correctness and context necessity                 | |
-|  | 4.6 Correct failed pairs (optional)                          | |
-|  +--------------------------------------------------------------+ |
-+--------------------------------+---------------------------------+
-                                 |
-                                 v
-+------------------------------------------------------------------+
-|  STEP 5: Hierarchical Deduplication                               |
-|  Question clustering -> Answer sub-clustering -> LLM merging      |
-+--------------------------------+---------------------------------+
-                                 |
-                                 v
-+------------------------------------------------------------------+
-|  STEP 6: Evaluation                                               |
-|  RAGAS metrics + Custom metrics (faithfulness, relevancy, etc)    |
-+------------------------------------------------------------------+
-```
-
-## Usage
-
-### Full Pipeline
+Copy the example config and customize:
 
 ```bash
-# Using the entry script
-python run_mirage.py
-
-# Or using the CLI (after pip install -e .)
-mirage --config config.yaml
+cp config.yaml.example config.yaml
 ```
 
-### Individual Components
+Edit `config.yaml`:
 
+```yaml
+backend:
+  active: GEMINI  # GEMINI, OPENAI, or OLLAMA
+  
+  gemini:
+    api_key_path: ~/.config/gemini/api_key.txt
+    llm_model: gemini-2.0-flash
+    vlm_model: gemini-2.0-flash
+    
+  openai:
+    api_key_path: ~/.config/openai/api_key.txt
+    llm_model: gpt-4o
+    vlm_model: gpt-4o
+    
+  ollama:
+    base_url: http://localhost:11434
+    llm_model: llama3
+    vlm_model: llava
+
+paths:
+  input_pdf_dir: data/documents
+  output_dir: output/results
+
+qa_generation:
+  target_qa_pairs: 100
+  max_workers: 4
+```
+
+Then run:
 ```bash
-# Preflight checks only
-python run_mirage.py --preflight
-
-# With custom config
-python run_mirage.py --config my_config.yaml
-
-# Skip preflight checks
-python run_mirage.py --skip-preflight
-
-# Verbose output
-python run_mirage.py --verbose
+python run_mirage.py --config config.yaml
 ```
 
-### Programmatic Usage
+## Command Line Options
 
-```python
-from mirage.core import call_llm_simple, setup_logging
-from mirage.pipeline import build_complete_context, generate_qa_for_chunk
-from mirage.embeddings import get_best_embedding_model
-
-# Setup logging
-setup_logging()
-
-# Load embedding model
-embedder = get_best_embedding_model()
-
-# Generate QA for a chunk
-qa_pairs = generate_qa_for_chunk(chunk, domain="Finance", expert="Financial Analyst")
-```
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--input` | `-i` | Input directory with documents | Required |
+| `--output` | `-o` | Output directory for results | Required |
+| `--api-key` | `-k` | API key for LLM backend | From env |
+| `--backend` | `-b` | Backend: gemini, openai, ollama | gemini |
+| `--model` | | Model name | Auto |
+| `--config` | `-c` | Config file path | config.yaml |
+| `--num-qa-pairs` | | Target QA pairs to generate | 100 |
+| `--max-workers` | | Parallel workers | 4 |
+| `--preflight` | | Run preflight checks only | - |
+| `--skip-preflight` | | Skip preflight checks | - |
+| `--skip-pdf-processing` | | Skip PDF conversion | - |
+| `--skip-chunking` | | Skip chunking step | - |
+| `--verbose` | `-v` | Verbose output | - |
+| `--version` | | Show version | - |
+| `--help` | `-h` | Show help | - |
 
 ## Output Format
 
-### Sample Generated Question-Answer Pair
-
-<p align="center">
-  <img src="assets/ample question-answer pair generated.png" alt="Sample Generated QA Pair" width="100%">
-</p>
-
-### QA Dataset Structure (qa_deduplicated.json)
-
-```json
-[
-  {
-    "chunk_id": 1,
-    "question": "What efficiency must a 75kW IE4 motor achieve?",
-    "answer": "A 75kW IE4 motor must achieve 96.0% efficiency at 50Hz...",
-    "context_chunks": [...],
-    "hop_count": 2,
-    "relevance_score": "9",
-    "difficulty_score": "7",
-    "expert_persona": "Motor Design Engineer",
-    "domain": "Electrical Engineering"
-  }
-]
-```
-
-### Output Directory Structure
+### Generated Files
 
 ```
 output/my_dataset/
 ├── markdown/              # Converted markdown files
 ├── chunks.json           # Semantic chunks
-├── embeddings/           # FAISS index and embeddings
 ├── qa_dataset.json       # Raw QA pairs
 ├── qa_deduplicated.json  # Final deduplicated QA pairs
-└── evaluation_report.json # Metrics and statistics
+├── evaluation_report.json # Quality metrics
+└── run_config.json       # Run configuration
 ```
 
-## Evaluation Metrics
+### QA Dataset Structure
 
-| Metric | Description |
-|--------|-------------|
-| **Faithfulness** | Answer grounded in context |
-| **Answer Relevancy** | Answer addresses the question |
-| **Context Precision** | Retrieved chunks are relevant |
-| **Context Recall** | Context contains reference info |
-| **Multi-hop Reasoning** | Quality of multi-step reasoning |
-| **Visual Dependency** | Requires image to answer |
-| **Context Necessity** | Requires context (anti-parametric bias) |
-| **Domain Coverage** | Corpus coverage |
+```json
+{
+  "chunk_id": 1,
+  "question": "What is the company's revenue growth?",
+  "answer": "The company achieved 15% revenue growth...",
+  "context_chunks": [...],
+  "hop_count": 2,
+  "relevance_score": "9",
+  "difficulty_score": "7",
+  "expert_persona": "Financial Analyst",
+  "domain": "Finance"
+}
+```
 
-## Hyperparameter Guide
+<p align="center">
+  <img src="assets/ample question-answer pair generated.png" alt="Sample QA Pair" width="100%">
+</p>
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_depth` | 10 | Maximum retrieval iterations |
-| `max_breadth` | 5 | Search queries per iteration |
-| `chunks_per_search` | 2 | Chunks retrieved per query |
-| `qa_max_workers` | 6 | Parallel workers for QA gen |
-| `question_similarity_threshold` | 0.75 | Question clustering threshold |
+## Project Structure
 
-### Recommended Settings
+```
+MiRAGE/
+├── src/mirage/              # Main package
+│   ├── core/               # LLM interfaces, prompts, config
+│   ├── embeddings/         # Embedding models, rerankers
+│   ├── pipeline/           # PDF processing, QA generation
+│   ├── evaluation/         # Metrics
+│   └── utils/              # Utilities
+├── data/                   # Your documents
+│   └── documents/         # Input folder
+├── output/                 # Generated results
+├── config.yaml.example     # Example configuration
+├── run_mirage.py          # Main entry point
+└── README.md
+```
 
-| Use Case | max_depth | max_breadth | chunks_per_search |
-|----------|-----------|-------------|-------------------|
-| **Quick Testing** | 2 | 2 | 1 |
-| **Balanced (Default)** | 10 | 5 | 2 |
-| **Thorough** | 20 | 10 | 3 |
+## Examples
+
+### Generate QA from PDFs
+
+```bash
+# Using Gemini
+export GEMINI_API_KEY="your-key"
+python run_mirage.py -i data/pdfs -o output/qa_dataset
+
+# Using OpenAI  
+export OPENAI_API_KEY="your-key"
+python run_mirage.py -i data/pdfs -o output/qa_dataset --backend openai
+
+# Using Ollama (local, free)
+python run_mirage.py -i data/pdfs -o output/qa_dataset --backend ollama
+```
+
+### Generate More QA Pairs
+
+```bash
+python run_mirage.py -i data/documents -o output/large_dataset --num-qa-pairs 500
+```
+
+### Use More Workers
+
+```bash
+python run_mirage.py -i data/documents -o output/fast_run --max-workers 8
+```
+
+### Skip Already Processed Steps
+
+```bash
+# If you already have markdown files
+python run_mirage.py -i data/documents -o output/results --skip-pdf-processing
+
+# If you already have chunks
+python run_mirage.py -i data/documents -o output/results --skip-chunking
+```
+
+## Troubleshooting
+
+### API Key Issues
+
+```bash
+# Check if API key is set
+echo $GEMINI_API_KEY
+
+# Set it if missing
+export GEMINI_API_KEY="your-key"
+```
+
+### Import Errors
+
+```bash
+# Reinstall package
+pip install -e .
+```
+
+### Preflight Check Failures
+
+```bash
+# Run verbose preflight
+python run_mirage.py --preflight --verbose
+```
 
 ## Contributing
 
-Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Citation
 
-If you use MiRAGE in your research, please cite:
-
 ```bibtex
 @software{mirage2024,
-  title = {MiRAGE: A Multiagent Framework for Generating Multimodal Multihop QA Datasets for RAG Evaluation},
+  title = {MiRAGE: A Multiagent Framework for Generating Multimodal Multihop QA Datasets},
   author = {MiRAGE Authors},
   year = {2024},
   url = {https://github.com/ChandanKSahu/MiRAGE}
@@ -430,12 +399,11 @@ If you use MiRAGE in your research, please cite:
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 - see [LICENSE](LICENSE)
 
 ## Acknowledgments
 
 - [RAGAS](https://github.com/explodinggradients/ragas) for evaluation metrics
 - [BERTopic](https://github.com/MaartenGr/BERTopic) for topic modeling
-- [Sentence Transformers](https://www.sbert.net/) for embeddings
 - [FAISS](https://github.com/facebookresearch/faiss) for similarity search
 - [Docling](https://github.com/DS4SD/docling) for PDF processing
