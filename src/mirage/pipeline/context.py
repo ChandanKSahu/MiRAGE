@@ -29,12 +29,16 @@ from mirage.core.prompts import PROMPTS_CHUNK
 # ============================================================================
 
 # Multi-hop context completion parameters
-# No artificial limits - run until context is COMPLETE
-MAX_DEPTH = 20  # Effectively unlimited iterative searches
-MAX_BREADTH = 20  # Effectively unlimited search strings per verification
+# SAFETY: Sensible limits to prevent runaway API calls
+# Each iteration can generate breadth × chunks_per_search API calls
+MAX_DEPTH = 10  # Maximum 10 iterations per chunk (was 20)
+MAX_BREADTH = 5  # Maximum 5 search strings per verification (was 20)
 CHUNKS_PER_SEARCH = 2  # Number of chunks to retrieve per search string
 # Chunk addition mode: "EXPLANATORY" (only direct answers) or "RELATED" (includes related chunks)
 CHUNK_ADDITION_MODE = "RELATED"  # Default: include both EXPLANATORY and RELATED chunks
+
+# Circuit breaker: stop if N consecutive iterations add no new chunks
+MAX_CONSECUTIVE_NO_PROGRESS = 3
 
 # Simple retrieval parameters
 RETRIEVAL_METHOD = "top_k"  # Options: "top_k" or "top_p"
@@ -640,6 +644,7 @@ def build_complete_context(
     search_history = []
     max_breadth_used = 0  # Track maximum search strings used in any iteration
     iteration_logs = []  # Detailed logs for each iteration
+    consecutive_no_progress = 0  # Circuit breaker: track consecutive iterations with no new chunks
     
     # Helper to get combined text for return value
     def get_combined_text(chunks):
@@ -835,7 +840,11 @@ def build_complete_context(
             related_count = sum(1 for c in new_chunks if c.get('classification') == 'RELATED')
             print(f"\n📝 Adding {len(new_chunks)} verified chunks to context ({explanatory_count} EXPLANATORY, {related_count} RELATED)")
             current_chunks.extend(new_chunks)
+            consecutive_no_progress = 0  # Reset circuit breaker
         else:
+            # Circuit breaker: track consecutive iterations with no progress
+            consecutive_no_progress += 1
+            
             # No relevant chunks found across ALL search strings
             if not any_relevant_found:
                 print(f"\n🛑 No relevant chunks found across all {len(search_strings)} search strings.")
@@ -854,8 +863,25 @@ def build_complete_context(
                     'termination_reason': 'No retrieved chunks were classified as EXPLANATORY or RELATED',
                     'iteration_logs': iteration_logs if log_details else None
                 }
+            elif consecutive_no_progress >= MAX_CONSECUTIVE_NO_PROGRESS:
+                # Circuit breaker triggered
+                print(f"\n🛑 Circuit breaker triggered: {consecutive_no_progress} consecutive iterations with no new chunks.")
+                print(f"   Stopping to prevent runaway API calls.")
+                hop_count = len(chunks_added) - 1
+                return {
+                    'status': 'INCOMPLETE_CIRCUIT_BREAKER',
+                    'context': get_combined_text(current_chunks),
+                    'chunks': current_chunks,
+                    'depth': depth,
+                    'hop_count': hop_count,
+                    'max_breadth_used': max_breadth_used,
+                    'chunks_added': chunks_added,
+                    'search_history': search_history,
+                    'termination_reason': f'Circuit breaker: {consecutive_no_progress} consecutive iterations with no new chunks',
+                    'iteration_logs': iteration_logs if log_details else None
+                }
             else:
-                print(f"\n⚠️ No new chunks to add (all duplicates). Stopping.")
+                print(f"\n⚠️ No new chunks to add (all duplicates). Consecutive no-progress: {consecutive_no_progress}/{MAX_CONSECUTIVE_NO_PROGRESS}")
                 hop_count = len(chunks_added) - 1
                 return {
                     'status': 'INCOMPLETE_ALL_DUPLICATES',

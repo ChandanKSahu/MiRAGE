@@ -203,8 +203,19 @@ def test_vlm_connection(test_image: str = None) -> bool:
         print(f"❌ VLM API connection error: {e}")
         return False
 
-def call_llm_simple(prompt: str) -> str:
-    """Simple LLM call with text-only input. Supports OLLAMA, GEMINI, OPENAI."""
+def call_llm_simple(prompt: str, max_retries: int = 5) -> str:
+    """Simple LLM call with text-only input. Supports OLLAMA, GEMINI, OPENAI.
+    
+    Args:
+        prompt: Text prompt to send to the LLM
+        max_retries: Maximum number of retry attempts (default: 5)
+    
+    Returns:
+        LLM response text
+        
+    Raises:
+        Exception: If all retry attempts fail
+    """
     print(f"🤖 Calling LLM (text-only) via {BACKEND}...")
     attempt = 0
     wait_time = 2
@@ -213,7 +224,7 @@ def call_llm_simple(prompt: str) -> str:
     content_preview = f"Content: {prompt[:50]}...{prompt[-50:]}" if len(prompt) > 100 else f"Content: {prompt}"
     logging.info(f"LLM Request [{BACKEND}] - {content_preview}")
     
-    while True:
+    while attempt < max_retries:
         attempt += 1
         try:
             if BACKEND == "OLLAMA":
@@ -277,12 +288,19 @@ def call_llm_simple(prompt: str) -> str:
             return result
                 
         except Exception as e:
-            print(f"⚠️ LLM call error (attempt {attempt}): {e}")
+            print(f"⚠️ LLM call error (attempt {attempt}/{max_retries}): {e}")
+            
+            if attempt >= max_retries:
+                print(f"❌ LLM call failed after {max_retries} attempts. Giving up.")
+                raise Exception(f"LLM call failed after {max_retries} attempts: {e}")
         
         # Wait with exponential backoff (capped at 60 seconds)
         print(f"   Waiting {wait_time}s before retry...")
         time.sleep(wait_time)
         wait_time = min(wait_time * 2, 60)
+    
+    # Should never reach here, but just in case
+    raise Exception(f"LLM call failed after {max_retries} attempts")
 
 def call_vlm_simple(prompt: str, image_path: str) -> str:
     """Simple VLM call with single image. Supports OLLAMA, GEMINI, OPENAI."""
@@ -505,7 +523,7 @@ def call_vlm_with_multiple_images(prompt: str, image_paths: List[str]) -> str:
                     result = response.json()["message"]["content"]
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
                     print(f"⚠️ Server error ({response.status_code}). Retrying...")
-                    attempt -= 1
+                    # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
                 else:
                     raise Exception(f"HTTP {response.status_code}")
@@ -531,7 +549,7 @@ def call_vlm_with_multiple_images(prompt: str, image_paths: List[str]) -> str:
                     result = resp_json["candidates"][0]["content"]["parts"][0]["text"]
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
                     print(f"⚠️ Server error ({response.status_code}). Retrying...")
-                    attempt -= 1
+                    # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
                 else:
                     error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
@@ -558,7 +576,7 @@ def call_vlm_with_multiple_images(prompt: str, image_paths: List[str]) -> str:
                     result = response.json()["choices"][0]["message"]["content"]
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
                     print(f"⚠️ Server error ({response.status_code}). Retrying...")
-                    attempt -= 1
+                    # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
                 else:
                     raise Exception(f"HTTP {response.status_code}")
@@ -703,7 +721,7 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
                 if response.status_code == 200:
                     result = response.json()["message"]["content"]
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
-                    attempt -= 1
+                    # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
                 else:
                     raise Exception(f"HTTP {response.status_code}")
@@ -732,7 +750,7 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
                     resp_json = response.json()
                     result = resp_json["candidates"][0]["content"]["parts"][0]["text"]
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
-                    attempt -= 1
+                    # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
                 else:
                     error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
@@ -762,7 +780,7 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
                 if response.status_code == 200:
                     result = response.json()["choices"][0]["message"]["content"]
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
-                    attempt -= 1
+                    # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
                 else:
                     raise Exception(f"HTTP {response.status_code}")
@@ -793,7 +811,7 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
                 if response.status_code == 200:
                     result = response.json()["choices"][0]["message"]["content"]
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
-                    attempt -= 1
+                    # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
                 else:
                     raise Exception(f"HTTP {response.status_code}")

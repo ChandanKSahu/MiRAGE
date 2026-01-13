@@ -71,9 +71,10 @@ try:
     
     # Context retrieval
     _multihop = _retrieval.get('multihop', {})
-    # null means no limit - use very high values
-    MAX_DEPTH = _multihop.get('max_depth') or 100
-    MAX_BREADTH = _multihop.get('max_breadth') or 100
+    # SAFETY: Limit depth and breadth to prevent runaway API calls
+    # Each iteration can generate depth × breadth × chunks_per_search API calls
+    MAX_DEPTH = min(_multihop.get('max_depth') or 10, 20)  # Default 10, max 20
+    MAX_BREADTH = min(_multihop.get('max_breadth') or 5, 10)  # Default 5, max 10
     CHUNKS_PER_SEARCH = _multihop.get('chunks_per_search', 2)
     CHUNK_ADDITION_MODE = _multihop.get('chunk_addition_mode', 'RELATED')  # EXPLANATORY or RELATED
     
@@ -101,9 +102,10 @@ except ImportError:
     INPUT_CHUNKS_FILE = None
     OUTPUT_DIR = "output/results"
     
-    # No limits on depth/breadth - run until context is COMPLETE
-    MAX_DEPTH = 100
-    MAX_BREADTH = 100
+    # SAFETY: Reasonable defaults to prevent runaway API calls
+    # Each iteration can generate depth × breadth × chunks_per_search API calls
+    MAX_DEPTH = 10  # Maximum 10 iterations per chunk
+    MAX_BREADTH = 5  # Maximum 5 search strings per verification
     CHUNKS_PER_SEARCH = 2
     CHUNK_ADDITION_MODE = "RELATED"  # EXPLANATORY or RELATED
     
