@@ -361,6 +361,35 @@ MiRAGE/
 └── LICENSE                       # Apache 2.0 License
 ```
 
+## Python API
+
+For programmatic access, you can import and use MiRAGE modules directly:
+
+```python
+# Import the main pipeline
+from mirage import run_pipeline
+
+# Or import specific components
+from mirage.core.llm import call_llm_simple, call_vlm_interweaved
+from mirage.pipeline.context import build_complete_context
+from mirage.pipeline.qa_generator import generate_qa, verify_qa
+from mirage.pipeline.domain import fetch_domain_and_role
+from mirage.embeddings.models import NomicVLEmbed, get_best_embedding_model
+from mirage.utils.preflight import run_preflight_checks
+
+# Example: Run preflight checks
+success, results = run_preflight_checks()
+
+# Example: Call LLM
+response = call_llm_simple("What is 2+2?")
+
+# Example: Use embedding model
+embedder = NomicVLEmbed()
+embedding = embedder.encode("Sample text")
+```
+
+See the module docstrings for detailed API documentation.
+
 ## Examples
 
 ### Generate QA from PDFs
