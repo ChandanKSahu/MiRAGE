@@ -872,7 +872,7 @@ def list_prompts() -> dict[str, list[str]]:
 # MODULE INFO
 # =============================================================================
 
-__version__ = "1.0.0"
+__version__ = "1.0.6"
 __all__ = [
     "PROMPTS",
     "PROMPTS_DESC", 

@@ -157,7 +157,7 @@ Environment Variables:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.0.5"
+        version="%(prog)s 1.0.6"
     )
     
     return parser.parse_args()
