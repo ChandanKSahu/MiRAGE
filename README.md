@@ -322,18 +322,43 @@ output/my_dataset/
 
 ```
 MiRAGE/
-├── src/mirage/              # Main package
-│   ├── core/               # LLM interfaces, prompts, config
-│   ├── embeddings/         # Embedding models, rerankers
-│   ├── pipeline/           # PDF processing, QA generation
-│   ├── evaluation/         # Metrics
-│   └── utils/              # Utilities
-├── data/                   # Your documents
-│   └── documents/         # Input folder
-├── output/                 # Generated results
-├── config.yaml.example     # Example configuration
-├── run_mirage.py          # Main entry point
-└── README.md
+├── src/mirage/                    # Main package
+│   ├── __init__.py               # Package initialization
+│   ├── main.py                   # Pipeline orchestration
+│   ├── cli.py                    # Command-line interface
+│   ├── core/                     # Core functionality
+│   │   ├── config.py             # Configuration management
+│   │   ├── llm.py                # LLM/VLM API interfaces
+│   │   └── prompts.py            # Prompt templates
+│   ├── embeddings/               # Embedding models
+│   │   ├── models.py             # Embedding model selection
+│   │   ├── rerankers_multimodal.py  # VLM-based reranking
+│   │   └── rerankers_text.py     # Text-based reranking
+│   ├── pipeline/                 # Processing pipeline
+│   │   ├── pdf_processor.py      # PDF to Markdown conversion
+│   │   ├── chunker.py            # Semantic chunking
+│   │   ├── context.py            # Multi-hop context retrieval
+│   │   ├── qa_generator.py       # QA generation and verification
+│   │   ├── domain.py             # Domain/expert extraction
+│   │   └── deduplication.py      # QA deduplication
+│   ├── evaluation/               # Evaluation metrics
+│   │   ├── metrics.py            # Standard RAGAS metrics
+│   │   └── metrics_optimized.py  # Optimized metrics (faster)
+│   └── utils/                    # Utilities
+│       ├── preflight.py          # System checks
+│       ├── stats.py              # Dataset statistics
+│       └── ablation.py           # Ablation studies
+├── data/documents/               # Input documents folder
+├── output/                       # Generated results
+├── assets/                       # Documentation images
+├── config.yaml.example           # Example configuration
+├── run_mirage.py                 # Main entry point script
+├── setup.py                      # Package installation
+├── pyproject.toml                # Package configuration
+├── requirements.txt              # Dependencies
+├── README.md                     # This file
+├── CONTRIBUTING.md               # Contribution guidelines
+└── LICENSE                       # Apache 2.0 License
 ```
 
 ## Examples

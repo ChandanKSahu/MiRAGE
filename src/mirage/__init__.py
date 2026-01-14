@@ -15,6 +15,11 @@ def __getattr__(name):
     This allows `from mirage import __version__` to work without a config file,
     while still providing convenient access to submodules when needed.
     """
+    # Main pipeline entry point
+    if name == "run_pipeline":
+        from mirage import main
+        return main.run_pipeline
+    
     # Core LLM functions - lazy import
     if name in ("call_llm_simple", "call_vlm_interweaved", "call_vlm_with_multiple_images",
                 "batch_call_vlm_interweaved", "setup_logging", "BACKEND", 
@@ -58,6 +63,8 @@ __all__ = [
     # Version info
     "__version__",
     "__author__",
+    # Main entry point
+    "run_pipeline",
     # Core LLM functions (lazy loaded)
     "call_llm_simple",
     "call_vlm_interweaved",

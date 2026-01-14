@@ -51,16 +51,16 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic usage
+  # Basic usage (uses GEMINI_API_KEY from environment by default)
   python run_mirage.py -i data/documents -o output/my_dataset
 
-  # With Gemini API key
-  python run_mirage.py -i data/documents -o output/my_dataset --api-key YOUR_GEMINI_KEY
+  # With Gemini API key (explicitly specify backend)
+  python run_mirage.py -i data/documents -o output/my_dataset --backend gemini --api-key YOUR_GEMINI_KEY
 
-  # With OpenAI
+  # With OpenAI (MUST specify --backend and --api-key)
   python run_mirage.py -i data/documents -o output/my_dataset --backend openai --api-key YOUR_OPENAI_KEY
 
-  # With local Ollama (no API key needed)
+  # With local Ollama (MUST specify --backend, no API key needed)
   python run_mirage.py -i data/documents -o output/my_dataset --backend ollama
 
   # Run preflight checks
@@ -229,6 +229,7 @@ def main():
     # Import after environment setup
     try:
         from mirage.utils.preflight import run_preflight_checks
+        from mirage.main import run_pipeline
     except ImportError as e:
         logger.error(f"Failed to import mirage package: {e}")
         logger.info("Make sure to install the package: pip install -e .")
@@ -263,7 +264,8 @@ def main():
     # Run preflight checks
     if not args.skip_preflight:
         logger.info("\nRunning preflight checks...")
-        if not run_preflight_checks():
+        all_passed, results = run_preflight_checks(skip_expensive=False, quiet=False)
+        if not all_passed:
             logger.error("Preflight checks failed. Fix issues above or use --skip-preflight.")
             sys.exit(1)
         logger.info("Preflight checks passed!\n")
@@ -285,86 +287,11 @@ def main():
         json.dump(config, f, indent=2)
     logger.info(f"Configuration saved to: {config_path}")
     
-    # Import pipeline modules
-    try:
-        from mirage.core.llm import setup_logging as setup_llm_logging
-        from mirage.utils.stats import compute_dataset_stats, print_dataset_stats
-    except ImportError as e:
-        logger.warning(f"Some modules not available: {e}")
+    # Run the full pipeline
+    logger.info("\nStarting MiRAGE pipeline...")
+    run_pipeline(skip_preflight=True)  # Already did preflight above
     
-    # Step 1: Process PDFs to Markdown
-    if not args.skip_pdf_processing:
-        logger.info("\n" + "=" * 70)
-        logger.info("Step 1: Processing documents to Markdown")
-        logger.info("=" * 70)
-        markdown_dir = os.path.join(args.output, "markdown")
-        os.makedirs(markdown_dir, exist_ok=True)
-        logger.info(f"Markdown output: {markdown_dir}")
-        # PDF processing would happen here
-        logger.info("PDF processing module ready")
-    else:
-        logger.info("Skipping PDF processing (--skip-pdf-processing)")
-        markdown_dir = os.path.join(args.output, "markdown")
-    
-    # Step 2: Chunk Markdown
-    if not args.skip_chunking:
-        logger.info("\n" + "=" * 70)
-        logger.info("Step 2: Creating semantic chunks")
-        logger.info("=" * 70)
-        chunks_file = os.path.join(args.output, "chunks.json")
-        logger.info(f"Chunks output: {chunks_file}")
-        # Chunking would happen here
-        logger.info("Chunking module ready")
-    else:
-        logger.info("Skipping chunking (--skip-chunking)")
-        chunks_file = os.path.join(args.output, "chunks.json")
-    
-    # Step 3: Domain extraction
-    logger.info("\n" + "=" * 70)
-    logger.info("Step 3: Extracting domain and expert role")
-    logger.info("=" * 70)
-    # Domain extraction would happen here
-    logger.info("Domain extraction module ready")
-    
-    # Step 4: QA Generation
-    logger.info("\n" + "=" * 70)
-    logger.info("Step 4: Generating QA pairs")
-    logger.info("=" * 70)
-    qa_file = os.path.join(args.output, "qa_dataset.json")
-    logger.info(f"QA output: {qa_file}")
-    # QA generation would happen here
-    logger.info("QA generation module ready")
-    
-    # Step 5: Deduplication
-    logger.info("\n" + "=" * 70)
-    logger.info("Step 5: Deduplicating QA pairs")
-    logger.info("=" * 70)
-    dedup_file = os.path.join(args.output, "qa_deduplicated.json")
-    logger.info(f"Deduplicated output: {dedup_file}")
-    # Deduplication would happen here
-    logger.info("Deduplication module ready")
-    
-    # Step 6: Evaluation
-    logger.info("\n" + "=" * 70)
-    logger.info("Step 6: Evaluating dataset quality")
-    logger.info("=" * 70)
-    eval_file = os.path.join(args.output, "evaluation_report.json")
-    logger.info(f"Evaluation output: {eval_file}")
-    # Evaluation would happen here
-    logger.info("Evaluation module ready")
-    
-    # Summary
-    logger.info("\n" + "=" * 70)
-    logger.info("Pipeline Complete!")
-    logger.info("=" * 70)
-    logger.info(f"Results saved to: {args.output}")
-    logger.info("")
-    logger.info("Output files:")
-    logger.info(f"  - {os.path.join(args.output, 'markdown/')} (converted documents)")
-    logger.info(f"  - {os.path.join(args.output, 'chunks.json')} (semantic chunks)")
-    logger.info(f"  - {os.path.join(args.output, 'qa_dataset.json')} (raw QA pairs)")
-    logger.info(f"  - {os.path.join(args.output, 'qa_deduplicated.json')} (final QA dataset)")
-    logger.info(f"  - {os.path.join(args.output, 'evaluation_report.json')} (quality metrics)")
+    logger.info("\nPipeline completed!")
 
 
 if __name__ == "__main__":

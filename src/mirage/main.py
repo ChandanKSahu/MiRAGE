@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 QA Dataset Generation Pipeline (FULLY PARALLELIZED)
-From PDFs → Semantic Chunks → Embed All → Multihop QA → Deduplication
+From PDFs -> Semantic Chunks -> Embed All -> Multihop QA -> Deduplication
 
 Configuration: Loads from config.yaml if available, otherwise uses defaults below.
 """
@@ -18,15 +18,16 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_compl
 from functools import partial
 import multiprocessing as mp
 
-from call_llm import setup_logging, BACKEND, LLM_MODEL_NAME, VLM_MODEL_NAME, GEMINI_RPM, GEMINI_BURST
-from data_stats import compute_dataset_stats, print_dataset_stats, compute_qa_category_stats, print_qa_category_stats
-from preflight_check import run_preflight_checks
+# Package imports
+from mirage.core.llm import setup_logging, BACKEND, LLM_MODEL_NAME, VLM_MODEL_NAME, GEMINI_RPM, GEMINI_BURST
+from mirage.utils.stats import compute_dataset_stats, print_dataset_stats, compute_qa_category_stats, print_qa_category_stats
+from mirage.utils.preflight import run_preflight_checks
 
 # ============================================================================
 # CONFIGURATION - Load from config.yaml if available
 # ============================================================================
 try:
-    from config_loader import (
+    from mirage.core.config import (
         load_config, get_paths_config, get_processing_config, 
         get_parallel_config, get_retrieval_config, get_embedding_config,
         get_evaluation_config, get_qa_correction_config, get_qa_generation_config
@@ -72,7 +73,7 @@ try:
     # Context retrieval
     _multihop = _retrieval.get('multihop', {})
     # SAFETY: Limit depth and breadth to prevent runaway API calls
-    # Each iteration can generate depth × breadth × chunks_per_search API calls
+    # Each iteration can generate depth x breadth x chunks_per_search API calls
     MAX_DEPTH = min(_multihop.get('max_depth') or 10, 20)  # Default 10, max 20
     MAX_BREADTH = min(_multihop.get('max_breadth') or 5, 10)  # Default 5, max 10
     CHUNKS_PER_SEARCH = _multihop.get('chunks_per_search', 2)
@@ -92,10 +93,10 @@ try:
     QA_NUM_PAIRS = _qa_gen.get('num_qa_pairs', 1000)  # Target number of QA pairs
     QA_TYPE = _qa_gen.get('type', 'multihop')  # Type: 'multihop', 'multimodal', 'text', 'mix'
     
-    print("✅ Configuration loaded from config.yaml")
+    print("Configuration loaded from config.yaml")
     
-except ImportError:
-    print("⚠️ config_loader not available, using default configuration")
+except (ImportError, Exception):
+    print("config.yaml not available, using default configuration")
     
     # Default configuration (fallback)
     INPUT_PDF_DIR = "data/documents"
@@ -103,7 +104,7 @@ except ImportError:
     OUTPUT_DIR = "output/results"
     
     # SAFETY: Reasonable defaults to prevent runaway API calls
-    # Each iteration can generate depth × breadth × chunks_per_search API calls
+    # Each iteration can generate depth x breadth x chunks_per_search API calls
     MAX_DEPTH = 10  # Maximum 10 iterations per chunk
     MAX_BREADTH = 5  # Maximum 5 search strings per verification
     CHUNKS_PER_SEARCH = 2
@@ -174,13 +175,13 @@ def get_reranker():
     """Get or create VLM reranker using Gemini API (cached if CACHE_EMBEDDINGS=True)"""
     if CACHE_EMBEDDINGS:
         if 'reranker' not in _MODEL_CACHE or _MODEL_CACHE['reranker'] is None:
-            print(f"🔄 Loading VLM reranker (uses {BACKEND} API)...")
-            from rerankers_multimodal import VLMReranker
+            print(f"Loading VLM reranker (uses {BACKEND} API)...")
+            from mirage.embeddings.rerankers_multimodal import VLMReranker
             _MODEL_CACHE['reranker'] = VLMReranker()
-            print(f"✅ VLM reranker loaded and cached")
+            print(f"VLM reranker loaded and cached")
         return _MODEL_CACHE['reranker']
     else:
-        from rerankers_multimodal import VLMReranker
+        from mirage.embeddings.rerankers_multimodal import VLMReranker
         return VLMReranker()
 
 def _load_sentence_transformer(model_name: str):
@@ -199,7 +200,7 @@ def _load_sentence_transformer(model_name: str):
         return model
     except Exception as e:
         # Fallback: try direct loading with device
-        print(f"⚠️ CPU-first loading failed ({e}), trying direct load...")
+        print(f"CPU-first loading failed ({e}), trying direct load...")
         return SentenceTransformer(model_name, device=device)
 
 def get_embedder(model_name: Optional[str] = None):
@@ -209,13 +210,13 @@ def get_embedder(model_name: Optional[str] = None):
     
     if CACHE_EMBEDDINGS:
         if model_name not in _MODEL_CACHE or _MODEL_CACHE[model_name] is None:
-            print(f"🔄 Loading embedding model: {model_name}...")
+            print(f"Loading embedding model: {model_name}...")
             
             if model_name == "nomic":
-                from embed_models import NomicVLEmbed as NomicEmbedder
+                from mirage.embeddings.models import NomicVLEmbed as NomicEmbedder
                 _MODEL_CACHE[model_name] = NomicEmbedder(gpus=EMBEDDING_GPUS)
             elif model_name in ["bge_m3", "BAAI/bge-m3"]:
-                from embed_models import get_best_embedding_model
+                from mirage.embeddings.models import get_best_embedding_model
                 actual_model_name = get_best_embedding_model() if model_name == "bge_m3" else model_name
                 _MODEL_CACHE[model_name] = _load_sentence_transformer(actual_model_name)
             else:
@@ -223,14 +224,14 @@ def get_embedder(model_name: Optional[str] = None):
                     _MODEL_CACHE[model_name] = _load_sentence_transformer(model_name)
                 else:
                     raise ValueError(f"Unknown embedding model: {model_name}")
-            print(f"✅ {model_name} model loaded and cached")
+            print(f"{model_name} model loaded and cached")
         return _MODEL_CACHE[model_name]
     else:
         if model_name == "nomic":
-            from embed_models import NomicVLEmbed as NomicEmbedder
+            from mirage.embeddings.models import NomicVLEmbed as NomicEmbedder
             return NomicEmbedder(gpus=EMBEDDING_GPUS)
         elif model_name in ["bge_m3", "BAAI/bge-m3"]:
-            from embed_models import get_best_embedding_model
+            from mirage.embeddings.models import get_best_embedding_model
             actual_model_name = get_best_embedding_model() if model_name == "bge_m3" else model_name
             return _load_sentence_transformer(actual_model_name)
         else:
@@ -249,7 +250,7 @@ def get_sentence_transformer():
 
 
 # ============================================================================
-# STEP 1: PDF → MARKDOWN → SEMANTIC CHUNKS (PARALLEL)
+# STEP 1: PDF -> MARKDOWN -> SEMANTIC CHUNKS (PARALLEL)
 # ============================================================================
 def _convert_single_document(args: Tuple[str, str, dict, int]) -> Tuple[str, str, str]:
     """Worker function to convert a single document (PDF or HTML) to markdown (for parallel processing)
@@ -280,7 +281,7 @@ def _convert_single_document(args: Tuple[str, str, dict, int]) -> Tuple[str, str
             torch.cuda.empty_cache()
         
         # Now import docling AFTER setting CUDA_VISIBLE_DEVICES
-        from pdf_to_md import configure_pipeline_options, annotate_items_with_images, create_multi_format_converter
+        from mirage.pipeline.pdf_processor import configure_pipeline_options, annotate_items_with_images, create_multi_format_converter
         from docling.document_converter import DocumentConverter, PdfFormatOption, HTMLFormatOption
         from docling.datamodel.base_models import InputFormat
         from docling_core.types.doc import ImageRefMode, TableItem
@@ -323,7 +324,7 @@ def _convert_single_document(args: Tuple[str, str, dict, int]) -> Tuple[str, str
             # Annotate all images and tables using unified function
             pictures_to_skip = annotate_items_with_images(conv_res)
             
-            # Create organized folders for images (matching pdf_to_md.py structure)
+            # Create organized folders for images (matching pdf_processor structure)
             tables_dir = md_output_dir / "tables"
             tables_dir.mkdir(parents=True, exist_ok=True)
             
@@ -339,7 +340,7 @@ def _convert_single_document(args: Tuple[str, str, dict, int]) -> Tuple[str, str
                     except Exception as e:
                         print(f"Warning: Could not save table image: {e}")
         
-        # Create artifacts directory (relative path like in pdf_to_md.py)
+        # Create artifacts directory (relative path like in pdf_processor.py)
         artifacts_dir = Path("ref_artifacts")
         (md_output_dir / "ref_artifacts").mkdir(parents=True, exist_ok=True)
         
@@ -352,7 +353,7 @@ def _convert_single_document(args: Tuple[str, str, dict, int]) -> Tuple[str, str
         
         md_file_abs = str(md_file)
         file_type = "PDF" if is_pdf else "HTML"
-        print(f"✅ Exported {file_type} markdown file saved to: {md_file_abs}")
+        print(f"Exported {file_type} markdown file saved to: {md_file_abs}")
         
         return (doc_file.name, str(md_file), None)
         
@@ -374,7 +375,7 @@ def _chunk_single_markdown(args: Tuple[str, str]) -> Tuple[str, List[dict], str]
     md_file_path, file_stem = args
     
     try:
-        from md_to_semantic_chunks import chunk_with_windows, renumber_chunks
+        from mirage.pipeline.chunker import chunk_with_windows, renumber_chunks
         
         md_file = Path(md_file_path)
         markdown_text = md_file.read_text(encoding='utf-8')
@@ -389,7 +390,7 @@ def _chunk_single_markdown(args: Tuple[str, str]) -> Tuple[str, List[dict], str]
 
 def convert_documents_to_chunks_parallel(doc_dir: str, output_chunks_file: str) -> list:
     """Convert document files (PDF and HTML) to semantic chunks via markdown (PARALLEL)"""
-    from pdf_to_md import SUPPORTED_EXTENSIONS
+    from mirage.pipeline.pdf_processor import SUPPORTED_EXTENSIONS
     
     doc_dir = Path(doc_dir)
     output_dir = Path(OUTPUT_DIR)
@@ -400,33 +401,33 @@ def convert_documents_to_chunks_parallel(doc_dir: str, output_chunks_file: str) 
         doc_files.extend(doc_dir.glob(f"*{ext}"))
     
     if not doc_files:
-        print(f"❌ No document files found in {doc_dir}")
+        print(f"No document files found in {doc_dir}")
         print(f"   Supported formats: {SUPPORTED_EXTENSIONS}")
         return []
     
     # Count by format
     pdf_count = sum(1 for f in doc_files if f.suffix.lower() == '.pdf')
     html_count = sum(1 for f in doc_files if f.suffix.lower() in {'.html', '.htm', '.xhtml'})
-    print(f"📂 Found {len(doc_files)} documents (PDF: {pdf_count}, HTML: {html_count})")
+    print(f"Found {len(doc_files)} documents (PDF: {pdf_count}, HTML: {html_count})")
     
     # Sort by file size if enabled (smallest first for faster trial runs)
     if SORT_BY_SIZE:
         doc_files = sorted(doc_files, key=lambda f: f.stat().st_size)
-        print(f"📊 Sorted {len(doc_files)} documents by file size (smallest first)")
+        print(f"Sorted {len(doc_files)} documents by file size (smallest first)")
     
     # Limit to first N documents for trial run
     if MAX_PDFS is not None:
         doc_files = doc_files[:MAX_PDFS]
         sizes = [f"{f.name}: {f.stat().st_size / 1024:.1f} KB" for f in doc_files]
-        print(f"🧪 TRIAL MODE: Processing {MAX_PDFS} smallest document file(s):")
+        print(f"TRIAL MODE: Processing {MAX_PDFS} smallest document file(s):")
         for s in sizes:
-            print(f"   • {s}")
+            print(f"   - {s}")
     
-    print(f"📄 Processing {len(doc_files)} document file(s)")
-    print(f"🔧 Using {NUM_WORKERS} parallel workers for document conversion on GPUs {AVAILABLE_GPUS}")
+    print(f"Processing {len(doc_files)} document file(s)")
+    print(f"Using {NUM_WORKERS} parallel workers for document conversion on GPUs {AVAILABLE_GPUS}")
     
     # Phase 1: Convert Documents to Markdown in parallel
-    print(f"\n📝 Phase 1: Converting documents to Markdown...")
+    print(f"\nPhase 1: Converting documents to Markdown...")
     # Assign each document to a GPU in round-robin fashion
     # Convert Path objects to strings for multiprocessing serialization
     output_dir_str = str(output_dir.resolve())
@@ -444,20 +445,20 @@ def convert_documents_to_chunks_parallel(doc_dir: str, output_chunks_file: str) 
             try:
                 name, md_file_path, error = future.result()
                 if error:
-                    print(f"  ❌ {name}: {error}")
+                    print(f"  Error {name}: {error}")
                 else:
                     file_stem = Path(name).stem
                     md_files.append((md_file_path, file_stem))
-                    print(f"  ✅ {name} → markdown")
+                    print(f"  {name} -> markdown")
             except Exception as e:
-                print(f"  ❌ {doc_name}: {e}")
+                print(f"  Error {doc_name}: {e}")
     
     if not md_files:
-        print("❌ No documents converted successfully")
+        print("No documents converted successfully")
         return []
     
     # Phase 2: Chunk Markdown files in parallel
-    print(f"\n📝 Phase 2: Chunking {len(md_files)} markdown files...")
+    print(f"\nPhase 2: Chunking {len(md_files)} markdown files...")
     
     all_chunks = []
     
@@ -469,19 +470,19 @@ def convert_documents_to_chunks_parallel(doc_dir: str, output_chunks_file: str) 
             try:
                 name, chunks, error = future.result()
                 if error:
-                    print(f"  ❌ {name}: {error}")
+                    print(f"  Error {name}: {error}")
                 else:
                     all_chunks.extend(chunks)
-                    print(f"  ✅ {name}: {len(chunks)} chunks")
+                    print(f"  {name}: {len(chunks)} chunks")
             except Exception as e:
-                print(f"  ❌ {file_stem}: {e}")
+                print(f"  Error {file_stem}: {e}")
     
     # Save all chunks
     os.makedirs(os.path.dirname(output_chunks_file), exist_ok=True)
     with open(output_chunks_file, 'w', encoding='utf-8') as f:
         json.dump(all_chunks, f, indent=2, ensure_ascii=False)
     
-    print(f"\n💾 Saved {len(all_chunks)} total chunks to {output_chunks_file}")
+    print(f"\nSaved {len(all_chunks)} total chunks to {output_chunks_file}")
     return all_chunks
 
 # Backward compatibility alias
@@ -492,10 +493,10 @@ def convert_pdfs_to_chunks_parallel(pdf_dir: str, output_chunks_file: str) -> li
 
 def load_chunks(chunks_file: str) -> list:
     """Load pre-existing chunks from JSON"""
-    print(f"📂 Loading chunks from {chunks_file}...")
+    print(f"Loading chunks from {chunks_file}...")
     with open(chunks_file, 'r', encoding='utf-8') as f:
         chunks = json.load(f)
-    print(f"✅ Loaded {len(chunks)} chunks")
+    print(f"Loaded {len(chunks)} chunks")
     return chunks
 
 
@@ -514,20 +515,20 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
     
     # Check if embeddings already exist
     if os.path.exists(index_path) and os.path.exists(metadata_path):
-        print(f"✅ Embeddings already exist at {embeddings_dir}")
+        print(f"Embeddings already exist at {embeddings_dir}")
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         chunk_ids = metadata['chunk_ids']
         
         if CACHE_EMBEDDINGS and _EMBEDDING_CACHE['chunk_embeddings'] is not None:
             embeddings_array = _EMBEDDING_CACHE['chunk_embeddings']
-            print(f"✅ Using cached embeddings from memory")
+            print(f"Using cached embeddings from memory")
         else:
-            print(f"⚠️ Index exists but embeddings not in cache - will recompute for topic modeling")
+            print(f"Index exists but embeddings not in cache - will recompute for topic modeling")
             embeddings_array = None
         return embeddings_dir, embeddings_array, chunk_ids
     
-    print(f"\n🔢 Embedding {len(chunks)} chunks (batch_size={EMBED_BATCH_SIZE})...")
+    print(f"\nEmbedding {len(chunks)} chunks (batch_size={EMBED_BATCH_SIZE})...")
     
     embedder = get_embedder()
     
@@ -619,7 +620,7 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
                 # Reduce batch size and retry
                 new_batch_size = max(1, batch_size // 2)
                 if new_batch_size < batch_size:
-                    logging.warning(f"OOM: Reducing batch size {batch_size} → {new_batch_size}")
+                    logging.warning(f"OOM: Reducing batch size {batch_size} -> {new_batch_size}")
                     current_batch_size = new_batch_size
                     torch.cuda.empty_cache()
                     import gc
@@ -678,10 +679,10 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
         _EMBEDDING_CACHE['chunk_embeddings'] = embeddings_array
         _EMBEDDING_CACHE['chunk_embeddings_index'] = index
         _EMBEDDING_CACHE['chunk_ids'] = chunk_ids
-        print(f"💾 Cached {len(chunk_ids)} chunk embeddings in memory")
+        print(f"Cached {len(chunk_ids)} chunk embeddings in memory")
     
     faiss.write_index(index, index_path)
-    print(f"💾 Saved FAISS index to {index_path}")
+    print(f"Saved FAISS index to {index_path}")
     
     metadata = {
         'chunk_ids': chunk_ids,
@@ -697,16 +698,16 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
 
 
 def configure_retrieval_paths(chunks_file: str, embeddings_dir: str, image_base_dir: str = None):
-    """Configure context_retrieved module to use unified embeddings and cached embedder/embeddings"""
-    import context_retrieved
+    """Configure context module to use unified embeddings and cached embedder/embeddings"""
+    from mirage.pipeline import context as context_module
     import sys
     
-    context_retrieved.CHUNKS_FILE = chunks_file
-    context_retrieved.EMBEDDINGS_DIR = embeddings_dir
+    context_module.CHUNKS_FILE = chunks_file
+    context_module.EMBEDDINGS_DIR = embeddings_dir
     if image_base_dir:
-        context_retrieved.IMAGE_BASE_DIR = image_base_dir
+        context_module.IMAGE_BASE_DIR = image_base_dir
     
-    context_retrieved_module = sys.modules['context_retrieved']
+    context_retrieved_module = sys.modules['mirage.pipeline.context']
     context_retrieved_module._cached_embedder = get_embedder() if CACHE_EMBEDDINGS else None
     context_retrieved_module._gpu_lock = _GPU_LOCK  # Pass GPU lock for thread-safe access
     
@@ -716,7 +717,7 @@ def configure_retrieval_paths(chunks_file: str, embeddings_dir: str, image_base_
         context_retrieved_module._cached_chunk_embeddings = _EMBEDDING_CACHE['chunk_embeddings']
         context_retrieved_module._cached_chunk_index = _EMBEDDING_CACHE['chunk_embeddings_index']
         context_retrieved_module._cached_chunk_ids = _EMBEDDING_CACHE['chunk_ids']
-        print(f"✅ Configured retrieval with cached embeddings + reranker + GPU lock")
+        print(f"Configured retrieval with cached embeddings + reranker + GPU lock")
     else:
         context_retrieved_module._cached_chunk_embeddings = None
         context_retrieved_module._cached_chunk_index = None
@@ -734,17 +735,17 @@ def get_domain_and_expert(chunks_file: str, embeddings: Optional[np.ndarray] = N
     2. Environment variables (DATASET_DOMAIN, DATASET_EXPERT_PERSONA)
     3. Auto-detect using BERTopic topic modeling
     """
-    from domain_expert import fetch_domain_and_role, load_domain_expert_from_env, save_domain_expert_to_env
+    from mirage.pipeline.domain import fetch_domain_and_role, load_domain_expert_from_env, save_domain_expert_to_env
     
     # Priority 1: Check config.yaml
     try:
-        from config_loader import get_domain_expert_config
+        from mirage.core.config import get_domain_expert_config
         domain_config = get_domain_expert_config()
         config_domain = domain_config.get('domain')
         config_persona = domain_config.get('expert_persona')
         
         if config_domain and config_persona:
-            print(f"✅ Using domain and expert persona from config.yaml")
+            print(f"Using domain and expert persona from config.yaml")
             print(f"   Domain: {config_domain}")
             print(f"   Expert Persona: {config_persona}")
             # Save to env for consistency
@@ -759,21 +760,21 @@ def get_domain_and_expert(chunks_file: str, embeddings: Optional[np.ndarray] = N
         return env_domain, env_persona
 
     # Priority 3: Auto-detect using BERTopic
-    print("\n🔍 Auto-detecting domain and expert persona from corpus...")
+    print("\nAuto-detecting domain and expert persona from corpus...")
     domain, expert_persona = fetch_domain_and_role(chunks_file, embeddings=embeddings, chunk_ids=chunk_ids)
-    print(f"✅ Domain: {domain}")
-    print(f"✅ Expert Persona: {expert_persona}")
+    print(f"Domain: {domain}")
+    print(f"Expert Persona: {expert_persona}")
     return domain, expert_persona
 
 
 # ============================================================================
-# STEP 4: MULTIHOP CONTEXT → QA GENERATION → VERIFICATION (PARALLEL)
+# STEP 4: MULTIHOP CONTEXT -> QA GENERATION -> VERIFICATION (PARALLEL)
 # ============================================================================
 def process_single_chunk_for_qa(chunk_data: tuple, domain: str, expert_persona: str) -> tuple:
     """Process a single chunk for QA generation (for parallel execution)"""
     i, chunk = chunk_data
-    from context_retrieved import build_complete_context
-    from qa_gen_multi_hop import (
+    from mirage.pipeline.context import build_complete_context
+    from mirage.pipeline.qa_generator import (
         generate_qa, select_qa_pairs, verify_qa, is_verification_successful,
         correct_failed_qa
     )
@@ -880,7 +881,7 @@ def process_single_chunk_for_qa(chunk_data: tuple, domain: str, expert_persona: 
             
             while correction_attempt < QA_CORRECTION_MAX_ATTEMPTS and current_failures:
                 correction_attempt += 1
-                print(f"  🔧 Correction attempt {correction_attempt}/{QA_CORRECTION_MAX_ATTEMPTS} for {len(current_failures)} failed pair(s)")
+                print(f"  Correction attempt {correction_attempt}/{QA_CORRECTION_MAX_ATTEMPTS} for {len(current_failures)} failed pair(s)")
                 
                 # Build failed_qa_pairs list for correction
                 failed_for_correction = [
@@ -928,7 +929,7 @@ def process_single_chunk_for_qa(chunk_data: tuple, domain: str, expert_persona: 
                     }
                     
                     if is_verification_successful(corrected_verification):
-                        print(f"    ✅ Corrected pair passed verification")
+                        print(f"    Corrected pair passed verification")
                         successful_qa.append(corrected_entry)
                     else:
                         # Accumulate feedback for next attempt
@@ -1078,7 +1079,7 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
     filtered_chunks = filter_chunks_by_qa_type(chunks, QA_TYPE)
     
     if len(filtered_chunks) < len(chunks):
-        print(f"🔍 Filtered chunks for '{QA_TYPE}' type: {len(chunks)} → {len(filtered_chunks)}")
+        print(f"Filtered chunks for '{QA_TYPE}' type: {len(chunks)} -> {len(filtered_chunks)}")
     
     process_chunks = filtered_chunks[:MAX_CHUNKS] if MAX_CHUNKS else filtered_chunks
     chunk_data = [(i+1, chunk) for i, chunk in enumerate(process_chunks)]
@@ -1086,9 +1087,9 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
     # Target QA count (None = no limit)
     target_qa_count = QA_NUM_PAIRS
     
-    print(f"\n🔧 Using {QA_MAX_WORKERS} parallel workers for QA generation")
-    print(f"🎯 Target: {target_qa_count if target_qa_count else 'unlimited'} '{QA_TYPE}' QA pairs")
-    print(f"📄 Processing {len(chunk_data)} chunks from corpus")
+    print(f"\nUsing {QA_MAX_WORKERS} parallel workers for QA generation")
+    print(f"Target: {target_qa_count if target_qa_count else 'unlimited'} '{QA_TYPE}' QA pairs")
+    print(f"Processing {len(chunk_data)} chunks from corpus")
     
     # Thread-safe counters
     matching_qa_count = [0]  # QA pairs matching target type
@@ -1135,7 +1136,7 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
                                 
                                 # Check if target reached
                                 if target_qa_count and matching_qa_count[0] >= target_qa_count:
-                                    print(f"\n🎯 Target reached: {matching_qa_count[0]}/{target_qa_count} '{QA_TYPE}' QA pairs")
+                                    print(f"\nTarget reached: {matching_qa_count[0]}/{target_qa_count} '{QA_TYPE}' QA pairs")
                                     stop_flag[0] = True
                                     generation_stats['target_reached'] = True
                     else:
@@ -1162,7 +1163,7 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
     
     # Summary with clear status
     print("\n" + "=" * 70)
-    print("📊 QA GENERATION SUMMARY")
+    print("QA GENERATION SUMMARY")
     print("=" * 70)
     
     if target_qa_count:
@@ -1172,11 +1173,11 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
         print(f"   Chunks processed:    {chunks_processed[0]}/{len(chunk_data)}")
         
         if generation_stats['target_reached']:
-            print(f"\n   ✅ SUCCESS: Target of {target_qa_count} '{QA_TYPE}' QA pairs reached!")
+            print(f"\n   SUCCESS: Target of {target_qa_count} '{QA_TYPE}' QA pairs reached!")
         else:
             shortfall = target_qa_count - matching_qa_count[0]
             pct_achieved = (matching_qa_count[0] / target_qa_count) * 100 if target_qa_count > 0 else 0
-            print(f"\n   ⚠️  CORPUS EXHAUSTED: Generated {matching_qa_count[0]}/{target_qa_count} ({pct_achieved:.1f}%)")
+            print(f"\n   CORPUS EXHAUSTED: Generated {matching_qa_count[0]}/{target_qa_count} ({pct_achieved:.1f}%)")
             print(f"       Shortfall: {shortfall} QA pairs")
             print(f"       All {len(chunk_data)} chunks have been processed.")
             print(f"       Consider: Adding more documents or using 'mix' type for higher yield.")
@@ -1186,7 +1187,7 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
         print(f"   Chunks processed:    {chunks_processed[0]}/{len(chunk_data)}")
     
     print("=" * 70)
-    print("   💾 Saving generated QA pairs...")
+    print("   Saving generated QA pairs...")
     
     return successful_qa, failed_qa, chunks_with_context, generation_stats
 
@@ -1198,12 +1199,12 @@ def save_qa_results(successful: list, failed: list, chunks_with_context: list):
     if chunks_with_context:
         with open(OUTPUT_CHUNKS_WITH_CONTEXT, 'w', encoding='utf-8') as f:
             json.dump(chunks_with_context, f, indent=2, ensure_ascii=False)
-        print(f"✅ Saved {len(chunks_with_context)} chunks with context to {OUTPUT_CHUNKS_WITH_CONTEXT}")
+        print(f"Saved {len(chunks_with_context)} chunks with context to {OUTPUT_CHUNKS_WITH_CONTEXT}")
     
     if successful:
         with open(OUTPUT_QA_SUCCESSFUL, 'w', encoding='utf-8') as f:
             json.dump(successful, f, indent=2, ensure_ascii=False)
-        print(f"✅ Saved {len(successful)} successful QA pairs to {OUTPUT_QA_SUCCESSFUL}")
+        print(f"Saved {len(successful)} successful QA pairs to {OUTPUT_QA_SUCCESSFUL}")
     
     if failed:
         # Separate malformed chunks (with 'error' key) from regular QA failures
@@ -1213,12 +1214,12 @@ def save_qa_results(successful: list, failed: list, chunks_with_context: list):
         if malformed:
             with open(OUTPUT_MALFORMED_CHUNKS, 'w', encoding='utf-8') as f:
                 json.dump(malformed, f, indent=2, ensure_ascii=False)
-            print(f"⚠️ Saved {len(malformed)} malformed chunks to {OUTPUT_MALFORMED_CHUNKS}")
+            print(f"Saved {len(malformed)} malformed chunks to {OUTPUT_MALFORMED_CHUNKS}")
         
         if qa_failed:
             with open(OUTPUT_QA_FAILED, 'w', encoding='utf-8') as f:
                 json.dump(qa_failed, f, indent=2, ensure_ascii=False)
-            print(f"⚠️ Saved {len(qa_failed)} failed QA pairs to {OUTPUT_QA_FAILED}")
+            print(f"Saved {len(qa_failed)} failed QA pairs to {OUTPUT_QA_FAILED}")
     
     # Stats: Count single vs multiple chunks in successful QA pairs
     single_chunk_count = 0
@@ -1235,7 +1236,7 @@ def save_qa_results(successful: list, failed: list, chunks_with_context: list):
     malformed_count = len([f for f in failed if 'error' in f]) if failed else 0
     qa_failed_count = len([f for f in failed if 'error' not in f]) if failed else 0
     
-    print(f"\n📊 QA STATS")
+    print(f"\nQA STATS")
     print(f"{'='*80}")
     print(f"Number of malformed chunks: {malformed_count}")
     print(f"Number of QA pairs in qa_multihop_fail: {qa_failed_count}")
@@ -1250,8 +1251,8 @@ def _process_single_cluster(args: Tuple) -> List[Dict]:
     """Worker function to process a single cluster for deduplication (parallel)"""
     cluster_items, cluster_indices, answer_embeddings_list, enable_reorganization, expert_persona, domain = args
 
-    from rerankers_text_qa_llm import LLMReranker
-    from deduplication import process_cluster_by_similarity
+    from mirage.embeddings.rerankers_text import LLMReranker
+    from mirage.pipeline.deduplication import process_cluster_by_similarity
     import torch
 
     # Convert list back to tensor
@@ -1286,26 +1287,26 @@ def deduplicate_qa_dataset_parallel(input_file: str, output_file: str,
         expert_persona: Expert role for domain-specific deduplication
         domain: Domain context for deduplication
     """
-    from deduplication import (
+    from mirage.pipeline.deduplication import (
         load_dataset, save_dataset, hierarchical_clustering,
         process_cluster_by_similarity
     )
-    from rerankers_text_qa_llm import LLMReranker
+    from mirage.embeddings.rerankers_text import LLMReranker
     from sentence_transformers import SentenceTransformer
-    from embed_models import get_best_embedding_model
+    from mirage.embeddings.models import get_best_embedding_model
     import torch
 
     if not os.path.exists(input_file):
-        print(f"❌ Input file {input_file} not found.")
+        print(f"Input file {input_file} not found.")
         return
 
     data = load_dataset(input_file)
     if not data:
-        print("⚠️ Dataset is empty.")
+        print("Dataset is empty.")
         return
     
     print(f"\n{'='*80}")
-    print("🎯 HIERARCHICAL DEDUPLICATION (PARALLEL)")
+    print("HIERARCHICAL DEDUPLICATION (PARALLEL)")
     print(f"{'='*80}\n")
     
     # Prepare embeddings
@@ -1315,7 +1316,7 @@ def deduplicate_qa_dataset_parallel(input_file: str, output_file: str,
     # Use cached embedder if available
     embedder = get_embedder("bge_m3")
     
-    print(f"📊 Generating embeddings for {len(questions)} QA pairs...")
+    print(f"Generating embeddings for {len(questions)} QA pairs...")
     question_embeddings = embedder.encode(questions, convert_to_tensor=True, show_progress_bar=True)
     answer_embeddings = embedder.encode(answers, convert_to_tensor=True, show_progress_bar=True)
     
@@ -1343,8 +1344,8 @@ def deduplicate_qa_dataset_parallel(input_file: str, output_file: str,
             final_dataset.append(data[i])
             stats['singletons'] += 1
     
-    print(f"ℹ️  Added {stats['singletons']} unique (singleton) items.")
-    print(f"🔄 Processing {len(clusters)} clusters with {DEDUP_MAX_WORKERS} parallel workers...")
+    print(f"Added {stats['singletons']} unique (singleton) items.")
+    print(f"Processing {len(clusters)} clusters with {DEDUP_MAX_WORKERS} parallel workers...")
     
     # Process clusters in parallel
     llm_merger = LLMReranker(expert_persona=expert_persona, domain=domain)
@@ -1390,48 +1391,14 @@ def deduplicate_qa_dataset_parallel(input_file: str, output_file: str,
     
     # Summary
     print("\n" + "="*80)
-    print("📊 DEDUPLICATION SUMMARY")
+    print("DEDUPLICATION SUMMARY")
     print("="*80)
-    print(f"Original: {stats['original']} → Final: {len(final_dataset)}")
+    print(f"Original: {stats['original']} -> Final: {len(final_dataset)}")
     print(f"Reduction: {stats['original'] - len(final_dataset)} ({100*(stats['original'] - len(final_dataset))/max(1,stats['original']):.1f}%)")
     print("="*80)
     
     save_dataset(final_dataset, output_file)
-    print(f"✅ Deduplicated dataset saved to {output_file}")
-
-
-# ============================================================================
-# STEP 6: COMPREHENSIVE EVALUATION
-# ============================================================================
-def run_evaluation(qa_file: str, corpus_file: str, output_dir: str) -> dict:
-    """Run comprehensive evaluation on the deduplicated QA dataset."""
-    from metrics import run_subset_evaluation
-    
-    # Load Gemini API key
-    if os.path.exists(GEMINI_API_KEY_PATH):
-        with open(GEMINI_API_KEY_PATH, 'r') as f:
-            os.environ["GOOGLE_API_KEY"] = f.read().strip()
-        print(f"✅ Loaded Gemini API key")
-    else:
-        print(f"⚠️  Gemini API key not found at {GEMINI_API_KEY_PATH}")
-        print("   Skipping evaluation...")
-        return None
-    
-    # Load QA data
-    with open(qa_file, 'r') as f:
-        qa_data = json.load(f)
-    print(f"📊 Evaluating {len(qa_data)} QA pairs...")
-    
-    # Run evaluation
-    results = run_subset_evaluation(
-        qa_data=qa_data,
-        corpus_path=corpus_file,
-        output_dir=output_dir,
-        sample_size=EVAL_SAMPLE_SIZE,
-        run_context_necessity=True
-    )
-    
-    return results
+    print(f"Deduplicated dataset saved to {output_file}")
 
 
 # ============================================================================
@@ -1447,13 +1414,13 @@ def run_evaluation(qa_file: str, chunks_file: str, output_dir: str) -> dict:
                 api_key = f.read().strip()
                 if api_key:
                     os.environ["GOOGLE_API_KEY"] = api_key
-                    print(f"✅ Loaded Gemini API key from {GEMINI_API_KEY_PATH}")
+                    print(f"Loaded Gemini API key from {GEMINI_API_KEY_PATH}")
                 else:
                     raise ValueError(f"Gemini API key file is empty: {GEMINI_API_KEY_PATH}")
         else:
             raise FileNotFoundError(f"Gemini API key file not found: {GEMINI_API_KEY_PATH}")
     else:
-        print(f"✅ Using existing GOOGLE_API_KEY/GEMINI_API_KEY from environment")
+        print(f"Using existing GOOGLE_API_KEY/GEMINI_API_KEY from environment")
     
     # Verify API key is set
     if not os.environ.get("GOOGLE_API_KEY") and not os.environ.get("GEMINI_API_KEY"):
@@ -1462,8 +1429,8 @@ def run_evaluation(qa_file: str, chunks_file: str, output_dir: str) -> dict:
     try:
         if USE_OPTIMIZED_METRICS:
             # OPTIMIZED: 4-6 LLM calls per QA (3-5x faster)
-            print("📊 Using OPTIMIZED metrics (harmonized with metrics.py)")
-            from metrics_optimized import run_optimized_pipeline_evaluation
+            print("Using OPTIMIZED metrics (harmonized with metrics.py)")
+            from mirage.evaluation.metrics_optimized import run_optimized_pipeline_evaluation
             
             results = run_optimized_pipeline_evaluation(
                 qa_file=qa_file,
@@ -1476,14 +1443,14 @@ def run_evaluation(qa_file: str, chunks_file: str, output_dir: str) -> dict:
             )
         else:
             # STANDARD: Uses RAGAS (10-20+ LLM calls per QA)
-            print("📊 Using STANDARD RAGAS metrics (slower, more LLM calls)")
-            from metrics import run_subset_evaluation
+            print("Using STANDARD RAGAS metrics (slower, more LLM calls)")
+            from mirage.evaluation.metrics import run_subset_evaluation
             
             # Load QA data
-            print(f"📂 Loading QA data from {qa_file}...")
+            print(f"Loading QA data from {qa_file}...")
             with open(qa_file, 'r', encoding='utf-8') as f:
                 qa_data = json.load(f)
-            print(f"✅ Loaded {len(qa_data)} QA pairs")
+            print(f"Loaded {len(qa_data)} QA pairs")
             
             results = run_subset_evaluation(
                 qa_data=qa_data,
@@ -1497,15 +1464,15 @@ def run_evaluation(qa_file: str, chunks_file: str, output_dir: str) -> dict:
         
     except Exception as e:
         print("\n" + "=" * 70)
-        print("❌ EVALUATION STOPPED DUE TO ERROR")
+        print("EVALUATION STOPPED DUE TO ERROR")
         print("=" * 70)
         print(f"   Error: {str(e)}")
         print()
-        print("📁 All data has been saved (chunks, QA pairs, etc.)")
+        print("All data has been saved (chunks, QA pairs, etc.)")
         print("   Only evaluation results are missing.")
         print()
         print("   To retry evaluation later, run:")
-        print(f"   python metrics_optimized.py {qa_file} {output_dir}")
+        print(f"   python -m mirage.evaluation.metrics_optimized {qa_file} {output_dir}")
         print("=" * 70)
         logging.error(f"Evaluation failed: {e}")
         import traceback
@@ -1516,7 +1483,8 @@ def run_evaluation(qa_file: str, chunks_file: str, output_dir: str) -> dict:
 # ============================================================================
 # MAIN PIPELINE
 # ============================================================================
-def main(skip_preflight: bool = False):
+def run_pipeline(skip_preflight: bool = False):
+    """Run the complete QA dataset generation pipeline."""
     setup_logging()
     
     # =========================================================================
@@ -1524,40 +1492,40 @@ def main(skip_preflight: bool = False):
     # =========================================================================
     if not skip_preflight:
         print("\n" + "=" * 70)
-        print("🔍 RUNNING PREFLIGHT CHECKS...")
+        print("RUNNING PREFLIGHT CHECKS...")
         print("=" * 70)
         
         all_passed, results = run_preflight_checks(skip_expensive=False, quiet=False)
         
         if not all_passed:
-            print("\n🛑 STOPPING: Preflight checks failed.")
+            print("\nSTOPPING: Preflight checks failed.")
             print("   Fix the issues above before running the pipeline.")
             print("   This prevents wasted LLM API calls on a misconfigured system.")
             print("\n   To skip preflight checks (not recommended), use: --skip-preflight\n")
             return
         
-        print("\n✅ All preflight checks passed! Starting pipeline...\n")
+        print("\nAll preflight checks passed! Starting pipeline...\n")
     else:
-        print("\n⚠️  Skipping preflight checks (--skip-preflight flag set)\n")
+        print("\nSkipping preflight checks (--skip-preflight flag set)\n")
     
     # Initialize GPU lock for thread-safe access
     init_gpu_lock()
     
     print("=" * 70)
-    print("🚀 QA DATASET GENERATION PIPELINE (FULLY PARALLELIZED)")
+    print("QA DATASET GENERATION PIPELINE (FULLY PARALLELIZED)")
     print("=" * 70)
-    print(f"⚙️  Configuration:")
-    print(f"   • Backend: {BACKEND}")
-    print(f"   • LLM Model: {LLM_MODEL_NAME}")
-    print(f"   • VLM Model: {VLM_MODEL_NAME}")
-    print(f"   • API Rate Limit: {GEMINI_RPM} RPM, burst={GEMINI_BURST}")
-    print(f"   • CPU Workers: {NUM_WORKERS}")
-    print(f"   • QA Workers: {QA_MAX_WORKERS}")
-    print(f"   • Dedup Workers: {DEDUP_MAX_WORKERS}")
-    print(f"   • Embed Batch Size: {EMBED_BATCH_SIZE}")
-    print(f"   • Target QA Pairs: {QA_NUM_PAIRS if QA_NUM_PAIRS else 'unlimited'}")
-    print(f"   • QA Type: {QA_TYPE}")
-    print(f"   • Run Evaluation: {RUN_EVALUATION}")
+    print(f"Configuration:")
+    print(f"   - Backend: {BACKEND}")
+    print(f"   - LLM Model: {LLM_MODEL_NAME}")
+    print(f"   - VLM Model: {VLM_MODEL_NAME}")
+    print(f"   - API Rate Limit: {GEMINI_RPM} RPM, burst={GEMINI_BURST}")
+    print(f"   - CPU Workers: {NUM_WORKERS}")
+    print(f"   - QA Workers: {QA_MAX_WORKERS}")
+    print(f"   - Dedup Workers: {DEDUP_MAX_WORKERS}")
+    print(f"   - Embed Batch Size: {EMBED_BATCH_SIZE}")
+    print(f"   - Target QA Pairs: {QA_NUM_PAIRS if QA_NUM_PAIRS else 'unlimited'}")
+    print(f"   - QA Type: {QA_TYPE}")
+    print(f"   - Run Evaluation: {RUN_EVALUATION}")
     print("=" * 70)
     
     # Step 1: Get chunks (from documents or pre-existing file)
@@ -1568,7 +1536,7 @@ def main(skip_preflight: bool = False):
         chunks = convert_documents_to_chunks_parallel(INPUT_PDF_DIR, OUTPUT_CHUNKS)
         chunks_file = OUTPUT_CHUNKS
         if not chunks:
-            print("❌ No chunks generated. Exiting.")
+            print("No chunks generated. Exiting.")
             return
     
     # Step 2: Embed ALL chunks & build unified FAISS index
@@ -1587,7 +1555,7 @@ def main(skip_preflight: bool = False):
         random.seed(SHUFFLE_SEED)
         chunks = chunks.copy()  # Don't modify original list
         random.shuffle(chunks)
-        print(f"🔀 Shuffled {len(chunks)} chunks (seed={SHUFFLE_SEED})")
+        print(f"Shuffled {len(chunks)} chunks (seed={SHUFFLE_SEED})")
     
     successful_qa, failed_qa, chunks_with_context, generation_stats = generate_qa_dataset_parallel(chunks, domain, expert_persona)
     
@@ -1598,7 +1566,7 @@ def main(skip_preflight: bool = False):
     generation_stats_file = os.path.join(OUTPUT_DIR, "generation_stats.json")
     with open(generation_stats_file, 'w', encoding='utf-8') as f:
         json.dump(generation_stats, f, indent=2)
-    print(f"✅ Saved generation stats to {generation_stats_file}")
+    print(f"Saved generation stats to {generation_stats_file}")
     
     # Step 5: Deduplicate (PARALLEL)
     if successful_qa:
@@ -1609,7 +1577,7 @@ def main(skip_preflight: bool = False):
     
     # Step 6: Compute dataset statistics
     print("\n" + "=" * 70)
-    print("📊 STEP 6: COMPUTING DATASET STATISTICS")
+    print("STEP 6: COMPUTING DATASET STATISTICS")
     print("=" * 70)
     dataset_stats = compute_dataset_stats(
         output_dir=OUTPUT_DIR,
@@ -1622,7 +1590,7 @@ def main(skip_preflight: bool = False):
     eval_results = None
     if RUN_EVALUATION and os.path.exists(OUTPUT_QA_DEDUPLICATED):
         print("\n" + "=" * 70)
-        print("📈 STEP 7: COMPREHENSIVE EVALUATION")
+        print("STEP 7: COMPREHENSIVE EVALUATION")
         print("=" * 70)
         eval_results = run_evaluation(OUTPUT_QA_DEDUPLICATED, chunks_file, OUTPUT_DIR)
         
@@ -1662,108 +1630,114 @@ def main(skip_preflight: bool = False):
             # Save updated evaluation report with all stats
             with open(OUTPUT_EVAL_REPORT, 'w', encoding='utf-8') as f:
                 json.dump(eval_results, f, indent=2, ensure_ascii=False)
-            print(f"✅ Updated evaluation report with dataset and QA category statistics")
+            print(f"Updated evaluation report with dataset and QA category statistics")
     
     # Summary
     print("\n" + "=" * 70)
-    print("📊 PIPELINE SUMMARY")
+    print("PIPELINE SUMMARY")
     print("=" * 70)
     
     # QA Generation stats
-    print(f"\n🎯 QA Generation:")
-    print(f"   • Target QA pairs:       {generation_stats['target_qa_pairs'] if generation_stats['target_qa_pairs'] else 'unlimited'}")
-    print(f"   • Generated QA pairs:    {generation_stats['generated_qa_pairs']}")
-    print(f"   • QA Type:               {generation_stats['qa_type']}")
-    print(f"   • Chunks processed:      {generation_stats['chunks_processed']}/{generation_stats['total_chunks']}")
+    print(f"\nQA Generation:")
+    print(f"   - Target QA pairs:       {generation_stats['target_qa_pairs'] if generation_stats['target_qa_pairs'] else 'unlimited'}")
+    print(f"   - Generated QA pairs:    {generation_stats['generated_qa_pairs']}")
+    print(f"   - QA Type:               {generation_stats['qa_type']}")
+    print(f"   - Chunks processed:      {generation_stats['chunks_processed']}/{generation_stats['total_chunks']}")
     
     if generation_stats['target_reached']:
-        print(f"   • Status:                ✅ TARGET REACHED")
+        print(f"   - Status:                TARGET REACHED")
     elif generation_stats['corpus_exhausted']:
-        print(f"   • Status:                ⚠️ CORPUS EXHAUSTED")
+        print(f"   - Status:                CORPUS EXHAUSTED")
     else:
-        print(f"   • Status:                ✅ COMPLETED")
+        print(f"   - Status:                COMPLETED")
     
-    print(f"\n📈 Results:")
-    print(f"   • Chunks with complete context: {len(chunks_with_context)}")
-    print(f"   • Successful QA pairs (pre-dedup): {len(successful_qa)}")
-    print(f"   • Failed QA pairs: {len(failed_qa)}")
+    print(f"\nResults:")
+    print(f"   - Chunks with complete context: {len(chunks_with_context)}")
+    print(f"   - Successful QA pairs (pre-dedup): {len(successful_qa)}")
+    print(f"   - Failed QA pairs: {len(failed_qa)}")
     
     if os.path.exists(OUTPUT_QA_DEDUPLICATED):
         with open(OUTPUT_QA_DEDUPLICATED) as f:
             dedup_data = json.load(f)
             dedup_count = len(dedup_data)
-        print(f"   • After deduplication: {dedup_count} QA pairs")
+        print(f"   - After deduplication: {dedup_count} QA pairs")
     
     # Show dataset statistics
-    print("\n📁 Dataset Statistics:")
-    print(f"   • Images: {dataset_stats['total_images']}")
-    print(f"   • Tables: {dataset_stats['total_tables']}")
-    print(f"   • Pages: {dataset_stats['total_pages']}")
-    print(f"   • Tokens: {dataset_stats['total_tokens']:,}")
+    print("\nDataset Statistics:")
+    print(f"   - Images: {dataset_stats['total_images']}")
+    print(f"   - Tables: {dataset_stats['total_tables']}")
+    print(f"   - Pages: {dataset_stats['total_pages']}")
+    print(f"   - Tokens: {dataset_stats['total_tokens']:,}")
     
     # Show QA category breakdown if available
     if os.path.exists(OUTPUT_QA_DEDUPLICATED):
         with open(OUTPUT_QA_DEDUPLICATED, 'r', encoding='utf-8') as f:
             qa_for_cats = json.load(f)
         cat_stats = compute_qa_category_stats(qa_for_cats)
-        print("\n📊 QA Category Breakdown:")
-        print(f"   • Multihop: {cat_stats['multihop_count']} ({cat_stats['multihop_pct']}%)")
-        print(f"   • Multimodal: {cat_stats['multimodal_count']} ({cat_stats['multimodal_pct']}%)")
-        print(f"   • Both (Multihop ∩ Multimodal): {cat_stats['multihop_multimodal_count']} ({cat_stats['multihop_multimodal_pct']}%)")
-        print(f"   • Avg Difficulty: {cat_stats.get('avg_difficulty', 0.0):.2f}")
-        print(f"   • Avg Relevance: {cat_stats.get('avg_relevance', 0.0):.2f}")
+        print("\nQA Category Breakdown:")
+        print(f"   - Multihop: {cat_stats['multihop_count']} ({cat_stats['multihop_pct']}%)")
+        print(f"   - Multimodal: {cat_stats['multimodal_count']} ({cat_stats['multimodal_pct']}%)")
+        print(f"   - Both (Multihop and Multimodal): {cat_stats['multihop_multimodal_count']} ({cat_stats['multihop_multimodal_pct']}%)")
+        print(f"   - Avg Difficulty: {cat_stats.get('avg_difficulty', 0.0):.2f}")
+        print(f"   - Avg Relevance: {cat_stats.get('avg_relevance', 0.0):.2f}")
     
     # Show evaluation summary if available
     if eval_results:
-        print("\n📈 Evaluation Metrics:")
+        print("\nEvaluation Metrics:")
         # RAGAS core metrics
         rm = eval_results.get('ragas_metrics', {})
-        print(f"   • Faithfulness (Faith.):      {rm.get('faithfulness', 0):.3f}")
-        print(f"   • Answer Relevancy (Rel.):    {rm.get('answer_relevancy', 0):.3f}")
-        print(f"   • Context Precision:          {rm.get('context_precision', 0):.3f}")
-        print(f"   • Context Recall:             {rm.get('context_recall', 0):.3f}")
+        print(f"   - Faithfulness (Faith.):      {rm.get('faithfulness', 0):.3f}")
+        print(f"   - Answer Relevancy (Rel.):    {rm.get('answer_relevancy', 0):.3f}")
+        print(f"   - Context Precision:          {rm.get('context_precision', 0):.3f}")
+        print(f"   - Context Recall:             {rm.get('context_recall', 0):.3f}")
         
         # Concept Hops (H) - from aggregate scores
         agg = eval_results.get('aggregate_scores', {})
         avg_hops = agg.get('avg_concept_hops_question', 0)
-        print(f"   • Avg Concept Hops (H):       {avg_hops:.2f}")
+        print(f"   - Avg Concept Hops (H):       {avg_hops:.2f}")
         
         # Multihop reasoning metrics
         mh = eval_results.get('multihop_metrics', {})
         if mh:
-            print(f"   • Reasoning Score (S_reason): {mh.get('avg_reasoning_score', 0):.3f}")
+            print(f"   - Reasoning Score (S_reason): {mh.get('avg_reasoning_score', 0):.3f}")
         
         # Visual grounding
         mm = eval_results.get('multimodal_metrics', {})
         if mm:
-            print(f"   • Visual Grounding (Vis.Gr.): {mm.get('avg_visual_dependency', 0):.3f}")
+            print(f"   - Visual Grounding (Vis.Gr.): {mm.get('avg_visual_dependency', 0):.3f}")
         
         # Domain coverage metrics
         dc = eval_results.get('domain_coverage', {})
-        print(f"   • Domain Coverage:            {dc.get('chunk_coverage', 0)*100:.1f}%")
-        print(f"   • JSD (Topic Divergence):     {dc.get('topic_divergence_js', 0):.4f}")
+        print(f"   - Domain Coverage:            {dc.get('chunk_coverage', 0)*100:.1f}%")
+        print(f"   - JSD (Topic Divergence):     {dc.get('topic_divergence_js', 0):.4f}")
         
         # Context Necessity
         cn = eval_results.get('context_necessity', {})
-        print(f"   • Context Necessity:          {cn.get('avg_context_necessity_score', 0):.2f}")
+        print(f"   - Context Necessity:          {cn.get('avg_context_necessity_score', 0):.2f}")
         
         # Dataset statistics
         stats = eval_results.get('subset_statistics', {})
-        print(f"\n📊 Dataset Composition:")
-        print(f"   • Total QA Pairs:    {stats.get('total_qa_pairs', 0)}")
-        print(f"   • Multihop QA:       {stats.get('multihop_count', 0)}")
-        print(f"   • Multimodal QA:     {stats.get('multimodal_count', 0)}")
+        print(f"\nDataset Composition:")
+        print(f"   - Total QA Pairs:    {stats.get('total_qa_pairs', 0)}")
+        print(f"   - Multihop QA:       {stats.get('multihop_count', 0)}")
+        print(f"   - Multimodal QA:     {stats.get('multimodal_count', 0)}")
     
-    print("\n📁 Output files:")
-    print(f"   • Chunks with context: {OUTPUT_CHUNKS_WITH_CONTEXT}")
-    print(f"   • Successful QA: {OUTPUT_QA_SUCCESSFUL}")
-    print(f"   • Failed QA: {OUTPUT_QA_FAILED}")
+    print("\nOutput files:")
+    print(f"   - Chunks with context: {OUTPUT_CHUNKS_WITH_CONTEXT}")
+    print(f"   - Successful QA: {OUTPUT_QA_SUCCESSFUL}")
+    print(f"   - Failed QA: {OUTPUT_QA_FAILED}")
     if os.path.exists(OUTPUT_QA_DEDUPLICATED):
-        print(f"   • Deduplicated QA: {OUTPUT_QA_DEDUPLICATED}")
+        print(f"   - Deduplicated QA: {OUTPUT_QA_DEDUPLICATED}")
     if eval_results:
-        print(f"   • Evaluation Report: {OUTPUT_EVAL_REPORT}")
+        print(f"   - Evaluation Report: {OUTPUT_EVAL_REPORT}")
     print("=" * 70)
-    print("\n🎉 Pipeline completed!")
+    print("\nPipeline completed!")
+
+
+# Backward compatibility alias
+def main(skip_preflight: bool = False):
+    """Backward compatibility wrapper for run_pipeline."""
+    return run_pipeline(skip_preflight)
 
 
 if __name__ == "__main__":
@@ -1778,9 +1752,9 @@ if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)
     
     try:
-        main(skip_preflight=args.skip_preflight)
+        run_pipeline(skip_preflight=args.skip_preflight)
     except KeyboardInterrupt:
-        print("\n👋 Interrupted by user.")
+        print("\nInterrupted by user.")
     except Exception as e:
         logging.error(f"Pipeline error: {e}")
         import traceback
