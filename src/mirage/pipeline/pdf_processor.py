@@ -61,7 +61,7 @@ CUDA_DEVICE_ID = PDF_CONFIG.get("cuda_device_id", 1)
 API_KEY_FILE = os.environ.get("GEMINI_API_KEY_PATH", os.path.expanduser("~/.config/gemini/api_key.txt"))
 API_URL = os.environ.get("LLM_API_URL", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
 
-from prompt import PROMPTS_DESC
+from mirage.core.prompts import PROMPTS_DESC
 
 logging.basicConfig(level=logging.INFO)
 _log = logging.getLogger(__name__)
@@ -276,7 +276,7 @@ def annotate_items_with_images(conv_res, model_name=MODEL_NAME, api_url=API_URL,
 
 def _annotate_items_batch(conv_res, model_name, pictures_to_skip):
     """Batch annotate pictures and tables using async batch processing."""
-    from call_llm import batch_call_vlm_base64
+    from mirage.core.llm import batch_call_vlm_base64
     
     # Collect all items that need annotation
     batch_requests = []  # List of (prompt, base64, mime_type)

@@ -48,8 +48,8 @@ def check_chunk_relevance(chunk_content: str, expert_persona: str, domain: str) 
     )
     
     # Use a simple text-only LLM call for relevance check (no images needed)
-    from call_llm import call_llm
-    response = call_llm(prompt)
+    from mirage.core.llm import call_llm_simple
+    response = call_llm_simple(prompt)
     
     # Parse response - should be "RELEVANT" or "NOT_RELEVANT"
     response_upper = response.strip().upper()
@@ -580,7 +580,7 @@ if __name__ == "__main__":
     # Priority 1: Check config.yaml
     domain, expert_persona = None, None
     try:
-        from config_loader import get_domain_expert_config
+        from mirage.core.config import get_domain_expert_config
         domain_config = get_domain_expert_config()
         config_domain = domain_config.get('domain')
         config_persona = domain_config.get('expert_persona')

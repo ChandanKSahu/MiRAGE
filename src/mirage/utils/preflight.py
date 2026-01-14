@@ -10,7 +10,7 @@ Checks:
 6. Required directories and files
 
 Run standalone: python preflight_check.py
-Or import: from preflight_check import run_preflight_checks
+Or import: from mirage.utils.preflight import run_preflight_checks
 """
 
 import os
@@ -55,7 +55,7 @@ def _timer(func):
 def check_config() -> CheckResult:
     """Check if config.yaml can be loaded."""
     try:
-        from config_loader import load_config, get_backend_config, get_paths_config, get_embedding_config
+        from mirage.core.config import load_config, get_backend_config, get_paths_config, get_embedding_config
         config = load_config()
         backend = get_backend_config()
         paths = get_paths_config()
@@ -91,7 +91,7 @@ def check_config() -> CheckResult:
 def check_api_key() -> CheckResult:
     """Check if API key is available and non-empty."""
     try:
-        from call_llm import API_KEY, BACKEND
+        from mirage.core.llm import API_KEY, BACKEND
         
         if API_KEY and len(API_KEY) > 10:
             # Mask the key for display
@@ -121,10 +121,10 @@ def check_api_key() -> CheckResult:
 def check_llm_call() -> CheckResult:
     """Test LLM API with a minimal call."""
     try:
-        from call_llm import call_llm, BACKEND, LLM_MODEL_NAME
+        from mirage.core.llm import call_llm_simple, BACKEND, LLM_MODEL_NAME
         
         test_prompt = "Say 'OK' and nothing else."
-        response = call_llm(test_prompt)
+        response = call_llm_simple(test_prompt)
         
         if response and len(response.strip()) > 0:
             return CheckResult(
@@ -157,7 +157,7 @@ def check_llm_call() -> CheckResult:
 def check_vlm_call() -> CheckResult:
     """Test VLM API with a minimal text-only call (no image needed for connectivity check)."""
     try:
-        from call_llm import call_vlm_interweaved, BACKEND, VLM_MODEL_NAME
+        from mirage.core.llm import call_vlm_interweaved, BACKEND, VLM_MODEL_NAME
         
         # Test with text-only context (simulates VLM call without actual image)
         test_prompt = "Say 'VLM OK' and nothing else."
@@ -196,14 +196,14 @@ def check_vlm_call() -> CheckResult:
 def check_embedding_model() -> CheckResult:
     """Test embedding model loading and inference."""
     try:
-        from config_loader import get_embedding_config
+        from mirage.core.config import get_embedding_config
         embed_config = get_embedding_config()
         model_name = embed_config.get('model', 'bge_m3')
         
         test_text = "This is a test sentence for embedding."
         
         if model_name in ["nomic", "nomic-ai/nomic-embed-multimodal-7b"]:
-            from embed_models import NomicVLEmbed
+            from mirage.embeddings.models import NomicVLEmbed
             gpus = embed_config.get('gpus', None)
             embedder = NomicVLEmbed(gpus=gpus)
             model_display = "Nomic Multimodal"
@@ -262,7 +262,7 @@ def check_embedding_model() -> CheckResult:
 def check_reranker() -> CheckResult:
     """Test reranker model loading."""
     try:
-        from config_loader import load_config
+        from mirage.core.config import load_config
         config = load_config()
         reranker_config = config.get('reranker', {})
         default_reranker = reranker_config.get('default', 'gemini_vlm')
@@ -276,7 +276,7 @@ def check_reranker() -> CheckResult:
                 details={"type": "gemini_vlm", "model": "gemini-2.5-flash"}
             )
         elif default_reranker in ["monovlm", "MonoVLM"]:
-            from rerankers_multimodal import MonoVLMReranker
+            from mirage.embeddings.rerankers_multimodal import MonoVLMReranker
             reranker = MonoVLMReranker()
             
             # Test with minimal query
@@ -314,7 +314,7 @@ def check_metrics_embeddings() -> CheckResult:
         
         # Check which embedding backend is available
         if GEMINI_AVAILABLE:
-            from call_llm import API_KEY
+            from mirage.core.llm import API_KEY
             if API_KEY:
                 # Try to initialize Gemini embeddings
                 try:
@@ -412,7 +412,7 @@ def check_gpu_availability() -> CheckResult:
 def check_output_directory() -> CheckResult:
     """Check if output directory is writable."""
     try:
-        from config_loader import get_paths_config
+        from mirage.core.config import get_paths_config
         paths = get_paths_config()
         output_dir = paths.get('output_dir', 'trials/results')
         
@@ -444,9 +444,9 @@ def check_output_directory() -> CheckResult:
 def check_input_data() -> CheckResult:
     """Check if input data exists."""
     try:
-        from config_loader import get_paths_config
+        from mirage.core.config import get_paths_config
         paths = get_paths_config()
-        
+
         input_pdf_dir = paths.get('input_pdf_dir')
         input_chunks_file = paths.get('input_chunks_file')
         

@@ -7,10 +7,10 @@ from collections import Counter
 
 # Import prompts for LLM-as-a-Judge metrics
 try:
-    from prompt import PROMPTS_METRICS
+    from mirage.core.prompts import PROMPTS_METRICS
 except ImportError:
     PROMPTS_METRICS = {}
-    print("Warning: Could not import PROMPTS_METRICS from prompt.py")
+    print("Warning: Could not import PROMPTS_METRICS from mirage.core.prompts")
 
 # Ragas Imports for Standard RAG Metrics
 try:
@@ -111,13 +111,13 @@ except ImportError:
 
 # VLM Import for multimodal evaluation
 try:
-    from call_llm import call_vlm_interweaved, batch_call_llm, batch_call_vlm_interweaved
+    from mirage.core.llm import call_vlm_interweaved, batch_call_vlm_interweaved
     VLM_AVAILABLE = True
     BATCH_AVAILABLE = True
 except ImportError:
     VLM_AVAILABLE = False
     BATCH_AVAILABLE = False
-    print("Warning: 'call_llm' module not available. VLM-based multimodal metrics will be skipped.")
+    print("Warning: mirage.core.llm not available. VLM-based multimodal metrics will be skipped.")
 
 class MultimodalFrameworkEvaluator:
     def __init__(self, model_name=None, embedding_model=None, use_gemini=True):
@@ -1663,7 +1663,7 @@ def run_subset_evaluation(
         if not pdf_dir_auto:
             # Check config for input_pdf_dir
             try:
-                from config_loader import get_paths_config
+                from mirage.core.config import get_paths_config
                 paths_config = get_paths_config()
                 potential_pdf_dir = paths_config.get('input_pdf_dir')
                 if potential_pdf_dir and os.path.exists(potential_pdf_dir):

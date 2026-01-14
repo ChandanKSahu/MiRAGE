@@ -15,7 +15,7 @@ This module provides prompts for:
 - Multimodal content handling
 
 Usage:
-    from prompt import PROMPTS, PROMPTS_DESC, PROMPTS_CHUNK, PROMPTS_METRICS
+    from mirage.core.prompts import PROMPTS, PROMPTS_DESC, PROMPTS_CHUNK, PROMPTS_METRICS
 
 Author: [Your Name/Organization]
 License: Apache 2.0

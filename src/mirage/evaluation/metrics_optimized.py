@@ -38,12 +38,12 @@ import numpy as np
 
 # Imports
 try:
-    from call_llm import call_llm, batch_call_llm, call_vlm_interweaved, batch_call_vlm_interweaved, API_KEY
+    from mirage.core.llm import call_llm_simple as call_llm, batch_call_vlm_interweaved, call_vlm_interweaved, API_KEY
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
     API_KEY = None
-    print("Warning: call_llm not available")
+    print("Warning: mirage.core.llm not available")
 
 try:
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -80,14 +80,14 @@ class LocalEmbeddingWrapper:
         """Embed multiple documents."""
         return self.model.encode(texts, normalize_embeddings=True).tolist()
 
-# Import prompts from prompt.py
+# Import prompts from mirage.core.prompts
 try:
-    from prompt import PROMPTS_METRICS_OPT
+    from mirage.core.prompts import PROMPTS_METRICS_OPT
     PROMPTS_AVAILABLE = True
 except ImportError:
     PROMPTS_AVAILABLE = False
     PROMPTS_METRICS_OPT = {}
-    print("Warning: PROMPTS_METRICS_OPT not available from prompt.py")
+    print("Warning: PROMPTS_METRICS_OPT not available from mirage.core.prompts")
 
 
 # ============================================================================
