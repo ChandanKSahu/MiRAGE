@@ -19,7 +19,7 @@ from functools import partial
 import multiprocessing as mp
 
 # Package imports
-from mirage.core.llm import setup_logging, BACKEND, LLM_MODEL_NAME, VLM_MODEL_NAME, GEMINI_RPM, GEMINI_BURST
+from mirage.core.llm import setup_logging, BACKEND, LLM_MODEL_NAME, VLM_MODEL_NAME, GEMINI_RPM, GEMINI_BURST, print_token_stats
 from mirage.utils.stats import compute_dataset_stats, print_dataset_stats, compute_qa_category_stats, print_qa_category_stats
 from mirage.utils.preflight import run_preflight_checks
 from mirage.utils.checkpoint import CheckpointManager
@@ -81,13 +81,13 @@ try:
     _multihop = _retrieval.get('multihop', {})
     # SAFETY: Limit depth and breadth to prevent runaway API calls
     # Each iteration can generate depth x breadth x chunks_per_search API calls
-    MAX_DEPTH = min(_multihop.get('max_depth') or 5, 20)  # Default 5, max 20
+    MAX_DEPTH = min(_multihop.get('max_depth') or 2, 20)  # Default 2 (cost-optimized), max 20
     MAX_BREADTH = min(_multihop.get('max_breadth') or 5, 10)  # Default 5, max 10
     CHUNKS_PER_SEARCH = _multihop.get('chunks_per_search', 2)
     CHUNK_ADDITION_MODE = _multihop.get('chunk_addition_mode', 'RELATED')  # EXPLANATORY or RELATED
     
     # Evaluation
-    RUN_EVALUATION = _eval.get('run_evaluation', True)
+    RUN_EVALUATION = _eval.get('run_evaluation', False)
     EVAL_SAMPLE_SIZE = _eval.get('sample_size', None)
     GEMINI_API_KEY_PATH = _eval.get('gemini_api_key_path', os.path.expanduser("~/.config/gemini/api_key.txt"))
     USE_OPTIMIZED_METRICS = _eval.get('use_optimized_metrics', True)  # 3-5x faster evaluation
@@ -106,7 +106,7 @@ try:
     FAISS_GPU_ID = _faiss.get('gpu_id', 0)
     
     # Deduplication config
-    RUN_DEDUPLICATION = _dedup.get('enabled', True)
+    RUN_DEDUPLICATION = _dedup.get('enabled', False)
     
     print("Configuration loaded from config.yaml")
     
@@ -120,7 +120,7 @@ except (ImportError, Exception):
     
     # SAFETY: Reasonable defaults to prevent runaway API calls
     # Each iteration can generate depth x breadth x chunks_per_search API calls
-    MAX_DEPTH = 5  # Maximum 5 iterations per chunk
+    MAX_DEPTH = 2  # Maximum 2 iterations per chunk (cost-optimized default)
     MAX_BREADTH = 5  # Maximum 5 search strings per verification
     CHUNKS_PER_SEARCH = 2
     CHUNK_ADDITION_MODE = "RELATED"  # EXPLANATORY or RELATED
@@ -142,13 +142,13 @@ except (ImportError, Exception):
     QA_MAX_WORKERS = 6
     DEDUP_MAX_WORKERS = 4
     
-    RUN_EVALUATION = True
+    RUN_EVALUATION = False
     EVAL_SAMPLE_SIZE = None
     GEMINI_API_KEY_PATH = os.path.expanduser("~/.config/gemini/api_key.txt")
     USE_OPTIMIZED_METRICS = True  # 3-5x faster evaluation
     
     # Deduplication default
-    RUN_DEDUPLICATION = True
+    RUN_DEDUPLICATION = False
     
     # QA Correction defaults
     QA_CORRECTION_ENABLED = True
@@ -161,6 +161,21 @@ except (ImportError, Exception):
     # FAISS defaults
     FAISS_USE_GPU = False
     FAISS_GPU_ID = 0
+
+# Environment variable overrides (set via run_mirage.py CLI)
+# These override config.yaml values
+if os.environ.get("MIRAGE_INPUT_DIR"):
+    INPUT_PDF_DIR = os.environ.get("MIRAGE_INPUT_DIR")
+if os.environ.get("MIRAGE_OUTPUT_DIR"):
+    OUTPUT_DIR = os.environ.get("MIRAGE_OUTPUT_DIR")
+if os.environ.get("MIRAGE_NUM_QA_PAIRS"):
+    QA_NUM_PAIRS = int(os.environ.get("MIRAGE_NUM_QA_PAIRS"))
+if os.environ.get("MIRAGE_MAX_WORKERS"):
+    QA_MAX_WORKERS = int(os.environ.get("MIRAGE_MAX_WORKERS"))
+if os.environ.get("MIRAGE_RUN_DEDUPLICATION") == "1":
+    RUN_DEDUPLICATION = True
+if os.environ.get("MIRAGE_RUN_EVALUATION") == "1":
+    RUN_EVALUATION = True
 
 # Derived output paths
 OUTPUT_CHUNKS = os.path.join(OUTPUT_DIR, "chunks.json")
@@ -684,6 +699,11 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
         else:
             print(f"   ⚠️ Chunk count mismatch ({len(chunk_ids)} in index vs {len(chunks)} current) - re-embedding")
     
+    # Define paths for new embeddings (needed when creating fresh or re-embedding)
+    model_name_safe = EMBEDDING_MODEL.replace('/', '_').replace('\\', '_')
+    index_path = os.path.join(embeddings_dir, f"{model_name_safe}_index.faiss")
+    metadata_path = os.path.join(embeddings_dir, f"{model_name_safe}_metadata.json")
+    
     print(f"\nEmbedding {len(chunks)} chunks (batch_size={EMBED_BATCH_SIZE})...")
     
     embedder = get_embedder()
@@ -1192,7 +1212,11 @@ def filter_chunks_by_qa_type(chunks: list, qa_type: str) -> list:
     filtered = []
     for chunk in chunks:
         artifact = chunk.get('artifact', 'None') if isinstance(chunk, dict) else 'None'
-        has_artifact = artifact and artifact != 'None' and artifact.lower() != 'none'
+        # Handle artifact as string or list
+        if isinstance(artifact, list):
+            has_artifact = len(artifact) > 0
+        else:
+            has_artifact = artifact and artifact != 'None' and str(artifact).lower() != 'none'
         
         if qa_type == 'multimodal':
             # Only chunks with images/tables
@@ -1235,7 +1259,12 @@ def is_qa_type_match(qa_entry: dict, qa_type: str) -> bool:
     for ctx_chunk in context_chunks:
         if isinstance(ctx_chunk, dict):
             artifact = ctx_chunk.get('artifact', 'None')
-            if artifact and artifact != 'None' and artifact.lower() != 'none':
+            # Handle artifact as string or list
+            if isinstance(artifact, list):
+                if len(artifact) > 0:
+                    is_multimodal = True
+                    break
+            elif artifact and artifact != 'None' and str(artifact).lower() != 'none':
                 is_multimodal = True
                 break
     
@@ -2126,6 +2155,9 @@ def run_pipeline():
     llm_cache = get_llm_cache()
     if llm_cache:
         llm_cache.print_stats()
+    
+    # Print token usage summary
+    print_token_stats()
     
     print("\nPipeline completed!")
 

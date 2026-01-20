@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multihop QA Visualization</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+            min-height: 100vh;
+            color: #e6edf3;
+            padding: 2rem;
+        }
+        .container { max-width: 1600px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            font-size: 2.2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, #58a6ff, #a371f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { text-align: center; color: #8b949e; margin-bottom: 2rem; }
+        
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .stat {
+            background: #21262d;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #30363d;
+        }
+        .stat-value { font-size: 1.8rem; font-weight: 700; color: #58a6ff; }
+        .stat-label { color: #8b949e; font-size: 0.85rem; }
+        
+        .section {
+            background: #161b22;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #30363d;
+        }
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #58a6ff;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .initial-chunk {
+            background: #0d1117;
+            border: 2px solid #58a6ff;
+            border-radius: 10px;
+            padding: 1.25rem;
+        }
+        .initial-label {
+            background: #58a6ff;
+            color: #0d1117;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            display: inline-block;
+        }
+        .chunk-content {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: #c9d1d9;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .depth-section {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px dashed #30363d;
+        }
+        .depth-section:last-child { border-bottom: none; }
+        .depth-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .depth-badge {
+            background: #a371f7;
+            color: #0d1117;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .depth-status {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-complete { background: rgba(63,185,80,0.2); color: #3fb950; }
+        .status-incomplete { background: rgba(210,153,34,0.2); color: #d29922; }
+        .depth-explanation {
+            color: #8b949e;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            font-style: italic;
+        }
+        
+        .queries-grid {
+            display: grid;
+            gap: 1rem;
+        }
+        .query-column {
+            background: #0d1117;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .query-header {
+            padding: 0.75rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: #0d1117;
+            font-weight: 600;
+        }
+        .query-chunks {
+            padding: 0.75rem;
+        }
+        .retrieved-chunk {
+            background: #21262d;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid;
+        }
+        .retrieved-chunk:last-child { margin-bottom: 0; }
+        .chunk-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .chunk-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(255,255,255,0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .chunk-verdict {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .verdict-related { background: rgba(63,185,80,0.2); color: #3fb950; }
+        .verdict-explanatory { background: rgba(88,166,255,0.2); color: #58a6ff; }
+        .no-chunks {
+            color: #8b949e;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 1rem;
+        }
+        
+        .context-box {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        .context-chunks-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .context-chunk-tag {
+            background: #21262d;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            border: 1px solid #30363d;
+        }
+        
+        .keyword-chain {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem;
+            background: #0d1117;
+            border-radius: 8px;
+        }
+        .chain-kw {
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .chain-arrow { color: #58a6ff; font-size: 1.3rem; }
+        .chain-relation { color: #8b949e; font-size: 0.8rem; margin: 0 0.5rem; }
+        
+        .qa-box {
+            background: linear-gradient(135deg, rgba(88,166,255,0.1), rgba(163,113,247,0.1));
+            border-radius: 10px;
+            padding: 1.5rem;
+            border: 1px solid rgba(88,166,255,0.3);
+        }
+        .qa-label { font-weight: 600; margin-bottom: 0.5rem; }
+        .question-label { color: #58a6ff; }
+        .answer-label { color: #3fb950; }
+        .question-text, .answer-text {
+            font-size: 1rem;
+            line-height: 1.7;
+            margin-bottom: 1rem;
+        }
+        .answer-text {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0;
+        }
+        
+        .kw { font-weight: 600; }
+        .flow-arrow {
+            text-align: center;
+            color: #58a6ff;
+            font-size: 2rem;
+            padding: 0.5rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Multihop QA Visualization</h1>
+        <p class="subtitle">Initial Chunk → Retrieval Iterations → Context → Keyword Chain → QA</p>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value">4</div>
+                <div class="stat-label">Total Chunks</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">3</div>
+                <div class="stat-label">Hops</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">2</div>
+                <div class="stat-label">Depth</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">10</div>
+                <div class="stat-label">Keywords</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">📄 Initial Chunk</div>
+            <div class="initial-chunk">
+                <span class="initial-label">SEED CHUNK · ECE_TRANS_180a21e:47</span>
+                <div class="chunk-content">Or,<br><br>6.1.3.1.2. At least one of the following conditions (a) to (c) is fulfilled:<br><br>- (a) <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">Current</span> and <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">voltage</span> at the input to each <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverter</span> that is powered by the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">REESS</span>  can  be  determined,  and  the  manufacturer  provides  accurate <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1(n) factors</span> representing the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between each input and the corresponding reference point(s).</div>
+            </div>
+        </div>
+        
+        <div class="flow-arrow">↓</div>
+
+        <div class="section">
+            <div class="section-title">🔄 Retrieval Iterations</div>
+
+            <div class="depth-section">
+                <div class="depth-header">
+                    <span class="depth-badge">DEPTH 1</span>
+                    <span class="depth-status status-incomplete">INCOMPLETE</span>
+                </div>
+                <p class="depth-explanation">The chunk refers to REESS and K1(n) factors without defining them, and assumes knowledge of inverter configurations in an automotive context.</p>
+                <div class="queries-grid" style="grid-template-columns: repeat(3, 1fr);">
+
+                    <div class="query-column">
+                        <div class="query-header" style="background:#42a5f5;">🔍 Query 1: REESS definition automotive</div>
+                        <div class="query-chunks">
+<div class="no-chunks">No chunks retrieved</div>
+                        </div>
+                    </div>
+
+                    <div class="query-column">
+                        <div class="query-header" style="background:#ff9800;">🔍 Query 2: K1(n) factors electrical conversion efficiency aut...</div>
+                        <div class="query-chunks">
+
+                            <div class="retrieved-chunk" style="border-color:#ff9800;">
+                                <div class="chunk-header">
+                                    <span class="chunk-id">ECE_TRANS_180a21e:51</span>
+                                    <span class="chunk-verdict verdict-related">RELATED</span>
+                                </div>
+                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk provides another condition related to K1 factors and electrical conversion effic...</div>
+                            </div>
+
+                            <div class="retrieved-chunk" style="border-color:#ff9800;">
+                                <div class="chunk-header">
+                                    <span class="chunk-id">ECE_TRANS_180a21e:49</span>
+                                    <span class="chunk-verdict verdict-related">RELATED</span>
+                                </div>
+                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk provides a related condition (b) that is part of the same list as condition (a) ...</div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="query-column">
+                        <div class="query-header" style="background:#66bb6a;">🔍 Query 3: inverter input current voltage automotive</div>
+                        <div class="query-chunks">
+
+                            <div class="retrieved-chunk" style="border-color:#66bb6a;">
+                                <div class="chunk-header">
+                                    <span class="chunk-id">ECE_TRANS_180a21e:30</span>
+                                    <span class="chunk-verdict verdict-related">RELATED</span>
+                                </div>
+                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk provides a visual and contextual overview of a hybrid electric vehicle powertrai...</div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="depth-section">
+                <div class="depth-header">
+                    <span class="depth-badge">DEPTH 2</span>
+                    <span class="depth-status status-complete">COMPLETE</span>
+                </div>
+                <p class="depth-explanation">The chunk provides sufficient context regarding the HEV powertrain architecture and component interconnections.</p>
+                <div class="queries-grid" style="grid-template-columns: repeat(3, 1fr);">
+
+                    <div class="query-column">
+                        <div class="query-header" style="background:#42a5f5;">🔍 Query 1: REESS definition automotive</div>
+                        <div class="query-chunks">
+<div class="no-chunks">No chunks retrieved</div>
+                        </div>
+                    </div>
+
+                    <div class="query-column">
+                        <div class="query-header" style="background:#ff9800;">🔍 Query 2: K1comb factor definition</div>
+                        <div class="query-chunks">
+<div class="no-chunks">No chunks retrieved</div>
+                        </div>
+                    </div>
+
+                    <div class="query-column">
+                        <div class="query-header" style="background:#66bb6a;">🔍 Query 3: inverter efficiency automotive</div>
+                        <div class="query-chunks">
+<div class="no-chunks">No chunks retrieved</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+        
+        <div class="flow-arrow">↓</div>
+
+        <div class="section">
+            <div class="section-title">📚 Final Context (All Chunks)</div>
+            <div class="context-box">
+                <div class="context-chunks-list">
+<span class="context-chunk-tag">ECE_TRANS_180a21e:47 (INITIAL)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a21e:51 (RELATED)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a21e:49 (RELATED)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a21e:30 (RELATED)</span>
+
+                </div>
+            </div>
+        </div>
+        
+        <div class="flow-arrow">↓</div>
+
+        <div class="section">
+            <div class="section-title">🔗 Keyword Chain (Cross-Chunk Connections)</div>
+            <div class="keyword-chain">
+
+                <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">REESS</span>
+                <span class="chain-arrow">→</span>
+                <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">REESS</span>
+                <span class="chain-relation">(energy storage)</span>
+
+                <span class="chain-kw" style="background:#ff980033;color:#ff9800;">inverter</span>
+                <span class="chain-arrow">→</span>
+                <span class="chain-kw" style="background:#ff980033;color:#ff9800;">inverter</span>
+                <span class="chain-relation">(power conversion)</span>
+
+                <span class="chain-kw" style="background:#66bb6a33;color:#66bb6a;">electrical conversion efficiency</span>
+                <span class="chain-arrow">→</span>
+                <span class="chain-kw" style="background:#66bb6a33;color:#66bb6a;">electrical conversion efficiency</span>
+                <span class="chain-relation">(energy loss)</span>
+
+            </div>
+        </div>
+        
+        <div class="flow-arrow">↓</div>
+
+        <div class="section">
+            <div class="section-title">❓ Generated Question & Answer</div>
+            <div class="qa-box">
+                <div class="qa-label question-label">Question:</div>
+                <div class="question-text">If the powertrain of a hybrid electric vehicle (HEV) with two powered axles, as depicted in the schematic diagram, uses a single <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1 factor</span> to represent the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between the input to each <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverter</span> and the reference point, what must be true about the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverters</span> according to condition (c)?</div>
+                <div class="qa-label answer-label">Answer:</div>
+                <div class="answer-text">According to condition (c), if a single <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1 factor</span> is used, the <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between the input to each <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverter</span> and the corresponding reference point must be identical.</div>
+            </div>
+        </div>
+        
+        <div style="text-align:center;color:#8b949e;padding:2rem 0;font-size:0.85rem;">
+            Generated by MiRAGe QA Pipeline | Keywords highlighted show concept linkage across chunks
+        </div>
+    </div>
+</body>
+</html>

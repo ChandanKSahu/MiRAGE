@@ -11,7 +11,8 @@ def __getattr__(name):
     if name in ("call_llm_simple", "call_vlm_interweaved", "call_vlm_with_multiple_images",
                 "batch_call_vlm_interweaved", "setup_logging", "test_llm_connection",
                 "test_vlm_connection", "BACKEND", "LLM_MODEL_NAME", "VLM_MODEL_NAME",
-                "GEMINI_RPM", "GEMINI_BURST"):
+                "GEMINI_RPM", "GEMINI_BURST", "get_token_stats", "reset_token_stats",
+                "print_token_stats"):
         from mirage.core import llm
         return getattr(llm, name)
     
@@ -42,6 +43,10 @@ __all__ = [
     "VLM_MODEL_NAME",
     "GEMINI_RPM",
     "GEMINI_BURST",
+    # Token tracking
+    "get_token_stats",
+    "reset_token_stats",
+    "print_token_stats",
     # Prompts
     "PROMPTS",
     "PROMPTS_CHUNK",

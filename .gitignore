@@ -1,22 +1,12 @@
 # ========== DATA AND RESULTS ==========
-# Allow folder structure with .gitkeep
-results/*
-!results/.gitkeep
-!results/example/
-results/example/*
-!results/example/.gitkeep
-
-trials/*
-!trials/.gitkeep
-!trials/example/
-trials/example/*
-!trials/example/.gitkeep
-
-SemanticChunks/*
-!SemanticChunks/.gitkeep
-!SemanticChunks/example/
-SemanticChunks/example/*
-!SemanticChunks/example/.gitkeep
+# Exclude entire folders
+results/
+output/
+SemanticChunks/
+trials/
+archive/
+tests/
+examples/
 
 # Data folder - allow sample dataset
 data/*
@@ -24,11 +14,11 @@ data/*
 !data/FinanceAnnualReports.zip
 !data/.gitkeep
 
-output/*
-archive/
+# Other data folders
 Samples/
 full_iec_old/
 embeddings/
+
 
 # ========== IEC RELATED ==========
 *iec*

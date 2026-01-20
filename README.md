@@ -6,11 +6,15 @@
   <img src="https://img.shields.io/pypi/v/mirage-benchmark.svg" alt="PyPI">
 </p>
 
-**MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems.
-
 <p align="center">
   <img src="assets/mirage_framework.png" alt="MiRAGE Framework Architecture" width="100%">
 </p>
+
+<p align="center">
+  <img src="assets/ample question-answer pair generated.png" alt="Sample QA Pair Generated" width="100%">
+</p>
+
+**MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems.
 
 ## Key Features
 
@@ -20,6 +24,8 @@
 - **Multimodal Support**: Handles text, tables, figures, and images
 - **Multiple Backend Support**: Gemini, OpenAI, and local Ollama models
 - **Fully Parallelized**: Thread and process pools for maximum throughput
+- **Token Usage Tracking**: Automatic tracking of input/output tokens across all LLM calls
+- **Checkpoint & Resume**: Interrupt and resume long-running pipelines without losing progress
 
 ## Table of Contents
 
@@ -128,17 +134,45 @@ python run_mirage.py -i data/my_documents -o output/my_dataset --backend ollama
 
 ```bash
 ls output/my_dataset/
-# qa_deduplicated.json  - Final QA dataset
-# chunks.json           - Semantic chunks
-# evaluation_report.json - Quality metrics
+# qa_multihop_pass.json  - Generated QA pairs (always created)
+# chunks.json            - Semantic chunks (always created)
+
+# Optional outputs (if --deduplication and --evaluation flags used):
+# qa_deduplicated.json   - Deduplicated QA pairs (with --deduplication)
+# evaluation_report.json - Quality metrics (with --evaluation)
 ```
 
 ## Usage
 
-### Basic Usage
+### Basic Usage (QA Generation Only)
+
+By default, MiRAGE runs the core pipeline: document processing, chunking, embedding, and QA generation/verification. **Deduplication and evaluation are OFF by default.**
 
 ```bash
+# Default: Generates QA pairs without deduplication or evaluation
 python run_mirage.py --input <INPUT_DIR> --output <OUTPUT_DIR>
+```
+
+### With Deduplication
+
+To merge similar QA pairs and remove duplicates:
+
+```bash
+python run_mirage.py -i data/documents -o output/results --deduplication
+```
+
+### With Evaluation Metrics
+
+To compute quality metrics (faithfulness, relevancy, etc.):
+
+```bash
+python run_mirage.py -i data/documents -o output/results --evaluation
+```
+
+### Full Pipeline (Deduplication + Evaluation)
+
+```bash
+python run_mirage.py -i data/documents -o output/results --deduplication --evaluation
 ```
 
 ### With All Options
@@ -151,6 +185,8 @@ python run_mirage.py \
     --api-key YOUR_GEMINI_KEY \
     --num-qa-pairs 100 \
     --max-workers 4 \
+    --deduplication \
+    --evaluation \
     --verbose
 ```
 
@@ -158,6 +194,17 @@ python run_mirage.py \
 - `gemini` (default) - Requires `GEMINI_API_KEY` or `--api-key`
 - `openai` - Requires `OPENAI_API_KEY` or `--api-key`
 - `ollama` - No API key needed (runs locally)
+
+**Pipeline Steps:**
+| Step | Description | Default |
+|------|-------------|---------|
+| 1. Document Processing | PDF/HTML to Markdown | **Mandatory** |
+| 2. Chunking | Semantic chunking | **Mandatory** |
+| 3. Embedding | FAISS index creation | **Mandatory** |
+| 4. Domain Detection | Expert persona extraction | **Mandatory** |
+| 5. QA Generation | Multi-hop QA with verification | **Mandatory** |
+| 6. Deduplication | Merge similar QA pairs | OFF (use `--deduplication`) |
+| 7. Evaluation | Quality metrics | OFF (use `--evaluation`) |
 
 ### Run Preflight Checks
 
@@ -264,6 +311,44 @@ Then run:
 python run_mirage.py --config config.yaml
 ```
 
+## ⚠️ Cost Optimization
+
+MiRAGE uses LLM/VLM APIs extensively. Two operations consume the most tokens:
+
+### 1. Document Processing (PDF/HTML → Markdown → Chunks)
+
+**Cost:** High (processes every page with VLM for image/table extraction)
+
+**Recommendation:**
+- Only process documents **once** on a curated set of relevant files
+- Use `--skip-pdf-processing` and `--skip-chunking` on subsequent runs
+- Pre-filter documents to remove irrelevant content before running MiRAGE
+
+```bash
+# First run: Process and chunk documents
+python run_mirage.py -i data/documents -o output/results
+
+# Subsequent runs: Skip processing, only generate QA
+python run_mirage.py -i data/documents -o output/results --skip-pdf-processing --skip-chunking
+```
+
+### 2. Multi-hop Context Building
+
+**Cost:** High (recursive LLM calls to expand context at each depth level)
+
+**Recommendation:**
+- Default is now `max_depth: 2` (previously 5)
+- Higher depths exponentially increase token usage with diminishing returns
+- Depth 2 captures most meaningful cross-document relationships
+
+```yaml
+# config.yaml
+context:
+  max_depth: 2  # Recommended: 2 (default: 5)
+```
+
+Use `print_token_stats()` or check the pipeline summary to monitor actual token consumption.
+
 ## Command Line Options
 
 | Option | Short | Description | Default |
@@ -314,10 +399,6 @@ output/my_dataset/
 }
 ```
 
-<p align="center">
-  <img src="assets/ample question-answer pair generated.png" alt="Sample QA Pair" width="100%">
-</p>
-
 ### Multihop QA Visualization
 
 Explore an interactive visualization of the multihop QA generation process, showing how context chunks are linked through keywords to generate complex questions:
@@ -340,7 +421,7 @@ MiRAGE/
 │   ├── cli.py                    # Command-line interface
 │   ├── core/                     # Core functionality
 │   │   ├── config.py             # Configuration management
-│   │   ├── llm.py                # LLM/VLM API interfaces
+│   │   ├── llm.py                # LLM/VLM API interfaces + token tracking
 │   │   └── prompts.py            # Prompt templates
 │   ├── embeddings/               # Embedding models
 │   │   ├── models.py             # Embedding model selection
@@ -359,7 +440,11 @@ MiRAGE/
 │   └── utils/                    # Utilities
 │       ├── preflight.py          # System checks
 │       ├── stats.py              # Dataset statistics
-│       └── ablation.py           # Ablation studies
+│       ├── ablation.py           # Ablation studies
+│       ├── checkpoint.py         # Checkpoint/resume support
+│       ├── llm_cache.py          # LLM response caching
+│       ├── visualize_multihop.py # Multihop QA visualization
+│       └── visualize_pipeline.py # Pipeline flow visualization
 ├── data/documents/               # Input documents folder
 ├── output/                       # Generated results
 ├── assets/                       # Documentation images
@@ -398,6 +483,20 @@ response = call_llm_simple("What is 2+2?")
 # Example: Use embedding model
 embedder = NomicVLEmbed()
 embedding = embedder.encode("Sample text")
+
+# Example: Track token usage
+from mirage.core.llm import get_token_stats, print_token_stats, reset_token_stats
+
+# After running LLM calls, check token usage
+stats = get_token_stats()
+print(f"Input tokens: {stats['total_input_tokens']}")
+print(f"Output tokens: {stats['total_output_tokens']}")
+
+# Print formatted summary
+print_token_stats()
+
+# Reset counters for a new run
+reset_token_stats()
 ```
 
 See the module docstrings for detailed API documentation.

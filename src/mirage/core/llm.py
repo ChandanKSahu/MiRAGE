@@ -26,10 +26,58 @@ VLM_MODEL_NAME = ""
 API_KEY = ""
 GEMINI_RPM = int(os.environ.get("GEMINI_RPM", "60"))
 GEMINI_BURST = int(os.environ.get("GEMINI_BURST", "15"))
-LOG_FILE = os.environ.get("LOG_FILE", "output/pipeline.log")
-TERMINAL_LOG_FILE = os.environ.get("TERMINAL_LOG_FILE", "output/terminal_pipeline.log")
+# Log files - default to output/, can be overridden via MIRAGE_OUTPUT_DIR
+_default_output = os.environ.get("MIRAGE_OUTPUT_DIR", "output")
+LOG_FILE = os.environ.get("LOG_FILE", os.path.join(_default_output, "pipeline.log"))
+TERMINAL_LOG_FILE = os.environ.get("TERMINAL_LOG_FILE", os.path.join(_default_output, "terminal_pipeline.log"))
 HEADERS = {"Content-Type": "application/json"}
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+# ============================================================================
+# TOKEN TRACKING - Global counters for input/output tokens
+# ============================================================================
+import threading as _threading
+_token_lock = _threading.Lock()
+_token_stats = {
+    'total_input_tokens': 0,
+    'total_output_tokens': 0,
+    'total_calls': 0,
+}
+
+def get_token_stats() -> Dict[str, int]:
+    """Get current token usage statistics."""
+    with _token_lock:
+        return _token_stats.copy()
+
+def reset_token_stats():
+    """Reset token counters to zero."""
+    global _token_stats
+    with _token_lock:
+        _token_stats = {
+            'total_input_tokens': 0,
+            'total_output_tokens': 0,
+            'total_calls': 0,
+        }
+
+def print_token_stats():
+    """Print token usage summary."""
+    stats = get_token_stats()
+    total = stats['total_input_tokens'] + stats['total_output_tokens']
+    print(f"\n{'='*60}")
+    print("TOKEN USAGE SUMMARY")
+    print(f"{'='*60}")
+    print(f"   Total API calls:    {stats['total_calls']:,}")
+    print(f"   Input tokens:       {stats['total_input_tokens']:,}")
+    print(f"   Output tokens:      {stats['total_output_tokens']:,}")
+    print(f"   Total tokens:       {total:,}")
+    print(f"{'='*60}\n")
+
+def _update_token_stats(input_tokens: int, output_tokens: int):
+    """Thread-safe update of token statistics."""
+    with _token_lock:
+        _token_stats['total_input_tokens'] += input_tokens
+        _token_stats['total_output_tokens'] += output_tokens
+        _token_stats['total_calls'] += 1
 
 # Default URLs and Models
 _DEFAULT_URLS = {
@@ -271,7 +319,13 @@ def call_llm_simple(prompt: str, max_retries: int = 5, use_cache: bool = True) -
                 }
                 response = requests.post(API_URL, json=data, timeout=300)
                 if response.status_code == 200:
-                    result = response.json()["message"]["content"]
+                    resp_json = response.json()
+                    result = resp_json["message"]["content"]
+                    # Track token usage (Ollama format)
+                    _update_token_stats(
+                        resp_json.get("prompt_eval_count", 0),
+                        resp_json.get("eval_count", 0)
+                    )
                 else:
                     raise Exception(f"HTTP {response.status_code}")
                     
@@ -286,6 +340,12 @@ def call_llm_simple(prompt: str, max_retries: int = 5, use_cache: bool = True) -
                 if response.status_code == 200:
                     resp_json = response.json()
                     result = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+                    # Track token usage
+                    usage = resp_json.get("usageMetadata", {})
+                    _update_token_stats(
+                        usage.get("promptTokenCount", 0),
+                        usage.get("candidatesTokenCount", 0)
+                    )
                 else:
                     error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
                     raise Exception(error_msg)
@@ -299,7 +359,14 @@ def call_llm_simple(prompt: str, max_retries: int = 5, use_cache: bool = True) -
                 }
                 response = requests.post(API_URL, headers=HEADERS, json=data, timeout=300)
                 if response.status_code == 200:
-                    result = response.json()["choices"][0]["message"]["content"]
+                    resp_json = response.json()
+                    result = resp_json["choices"][0]["message"]["content"]
+                    # Track token usage
+                    usage = resp_json.get("usage", {})
+                    _update_token_stats(
+                        usage.get("prompt_tokens", 0),
+                        usage.get("completion_tokens", 0)
+                    )
                 else:
                     raise Exception(f"HTTP {response.status_code}")
                     
@@ -394,6 +461,12 @@ def call_vlm_simple(prompt: str, image_path: str) -> str:
                 if response.status_code == 200:
                     resp_json = response.json()
                     result = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+                    # Track token usage
+                    usage = resp_json.get("usageMetadata", {})
+                    _update_token_stats(
+                        usage.get("promptTokenCount", 0),
+                        usage.get("candidatesTokenCount", 0)
+                    )
                 else:
                     error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
                     raise Exception(error_msg)
@@ -595,6 +668,12 @@ def call_vlm_with_multiple_images(prompt: str, image_paths: List[str]) -> str:
                 if response.status_code == 200:
                     resp_json = response.json()
                     result = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+                    # Track token usage
+                    usage = resp_json.get("usageMetadata", {})
+                    _update_token_stats(
+                        usage.get("promptTokenCount", 0),
+                        usage.get("candidatesTokenCount", 0)
+                    )
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
                     print(f"⚠️ Server error ({response.status_code}). Retrying...")
                     # Note: Do NOT decrement attempt - rate limits count against max retries
@@ -813,6 +892,12 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict], use_cache: bool = True
                 if response.status_code == 200:
                     resp_json = response.json()
                     result = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+                    # Track token usage
+                    usage = resp_json.get("usageMetadata", {})
+                    _update_token_stats(
+                        usage.get("promptTokenCount", 0),
+                        usage.get("candidatesTokenCount", 0)
+                    )
                 elif 500 <= response.status_code < 600 or response.status_code == 429:
                     # Note: Do NOT decrement attempt - rate limits count against max retries
                     raise Exception(f"Server error {response.status_code}")
@@ -1328,6 +1413,11 @@ async def _async_call_llm_simple(prompt: str, session: aiohttp.ClientSession,
             async with session.post(API_URL, json=data, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
                     result_json = await resp.json()
+                    # Track token usage (Ollama format)
+                    _update_token_stats(
+                        result_json.get("prompt_eval_count", 0),
+                        result_json.get("eval_count", 0)
+                    )
                     return result_json["message"]["content"]
                 else:
                     raise Exception(f"HTTP {resp.status}")
@@ -1342,6 +1432,12 @@ async def _async_call_llm_simple(prompt: str, session: aiohttp.ClientSession,
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
                     resp_json = await resp.json()
+                    # Track token usage
+                    usage = resp_json.get("usageMetadata", {})
+                    _update_token_stats(
+                        usage.get("promptTokenCount", 0),
+                        usage.get("candidatesTokenCount", 0)
+                    )
                     return resp_json["candidates"][0]["content"]["parts"][0]["text"]
                 else:
                     text = await resp.text()
@@ -1356,8 +1452,14 @@ async def _async_call_llm_simple(prompt: str, session: aiohttp.ClientSession,
             async with session.post(API_URL, headers=HEADERS, json=data,
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
-                    response_data = await resp.json()
-                    return response_data["choices"][0]["message"]["content"]
+                    resp_json = await resp.json()
+                    # Track token usage
+                    usage = resp_json.get("usage", {})
+                    _update_token_stats(
+                        usage.get("prompt_tokens", 0),
+                        usage.get("completion_tokens", 0)
+                    )
+                    return resp_json["choices"][0]["message"]["content"]
                 else:
                     raise Exception(f"HTTP {resp.status}")
                     
@@ -1416,6 +1518,11 @@ async def _async_call_vlm_interweaved(prompt: str, chunks: List[Dict],
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
                     result_json = await resp.json()
+                    # Track token usage (Ollama format)
+                    _update_token_stats(
+                        result_json.get("prompt_eval_count", 0),
+                        result_json.get("eval_count", 0)
+                    )
                     return result_json["message"]["content"]
                 else:
                     raise Exception(f"HTTP {resp.status}")
@@ -1441,6 +1548,12 @@ async def _async_call_vlm_interweaved(prompt: str, chunks: List[Dict],
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
                     resp_json = await resp.json()
+                    # Track token usage
+                    usage = resp_json.get("usageMetadata", {})
+                    _update_token_stats(
+                        usage.get("promptTokenCount", 0),
+                        usage.get("candidatesTokenCount", 0)
+                    )
                     return resp_json["candidates"][0]["content"]["parts"][0]["text"]
                 else:
                     text = await resp.text()
@@ -1467,8 +1580,14 @@ async def _async_call_vlm_interweaved(prompt: str, chunks: List[Dict],
             async with session.post(API_URL, headers=HEADERS, json=data,
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
-                    response_data = await resp.json()
-                    return response_data["choices"][0]["message"]["content"]
+                    resp_json = await resp.json()
+                    # Track token usage
+                    usage = resp_json.get("usage", {})
+                    _update_token_stats(
+                        usage.get("prompt_tokens", 0),
+                        usage.get("completion_tokens", 0)
+                    )
+                    return resp_json["choices"][0]["message"]["content"]
                 else:
                     raise Exception(f"HTTP {resp.status}")
                     
@@ -1766,6 +1885,11 @@ async def _async_call_vlm_base64(prompt: str, base64_image: str,
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
                     result_json = await resp.json()
+                    # Track token usage (Ollama format)
+                    _update_token_stats(
+                        result_json.get("prompt_eval_count", 0),
+                        result_json.get("eval_count", 0)
+                    )
                     return result_json["message"]["content"]
                 else:
                     raise Exception(f"HTTP {resp.status}")
@@ -1784,6 +1908,12 @@ async def _async_call_vlm_base64(prompt: str, base64_image: str,
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
                     resp_json = await resp.json()
+                    # Track token usage
+                    usage = resp_json.get("usageMetadata", {})
+                    _update_token_stats(
+                        usage.get("promptTokenCount", 0),
+                        usage.get("candidatesTokenCount", 0)
+                    )
                     return resp_json["candidates"][0]["content"]["parts"][0]["text"]
                 else:
                     text = await resp.text()
@@ -1803,8 +1933,14 @@ async def _async_call_vlm_base64(prompt: str, base64_image: str,
             async with session.post(API_URL, headers=HEADERS, json=data,
                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
-                    response_data = await resp.json()
-                    return response_data["choices"][0]["message"]["content"]
+                    resp_json = await resp.json()
+                    # Track token usage
+                    usage = resp_json.get("usage", {})
+                    _update_token_stats(
+                        usage.get("prompt_tokens", 0),
+                        usage.get("completion_tokens", 0)
+                    )
+                    return resp_json["choices"][0]["message"]["content"]
                 else:
                     raise Exception(f"HTTP {resp.status}")
                     

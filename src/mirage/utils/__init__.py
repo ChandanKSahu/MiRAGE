@@ -1,5 +1,5 @@
 """
-Utilities module for MiRAGE - Preflight checks, statistics, and ablation studies.
+Utilities module for MiRAGE - Preflight checks, statistics, ablation studies, and visualization.
 
 Imports are lazy to avoid loading optional dependencies at import time.
 """
@@ -18,6 +18,8 @@ _LAZY_IMPORTS = {
     # Ablation
     "run_ablation_study": ("ablation", "run_ablation_study"),
     "AblationConfig": ("ablation", "AblationConfig"),
+    # Visualization
+    "generate_html_visualization": ("visualize_multihop", "generate_html_visualization"),
 }
 
 

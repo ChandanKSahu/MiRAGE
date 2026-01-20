@@ -24,6 +24,7 @@ from mirage.embeddings.models import NomicVLEmbed as NomicEmbedder
 from mirage.embeddings.rerankers_multimodal import MonoVLMReranker, VLMReranker, TextEmbeddingReranker
 from sentence_transformers import SentenceTransformer
 import threading
+import os
 
 # Thread-safe lock for embedder initialization
 _embedder_init_lock = threading.Lock()
@@ -64,7 +65,7 @@ from mirage.core.prompts import PROMPTS_CHUNK
 # Multi-hop context completion parameters
 # SAFETY: Sensible limits to prevent runaway API calls
 # Each iteration can generate breadth × chunks_per_search API calls
-MAX_DEPTH = 5  # Maximum 5 iterations per chunk
+MAX_DEPTH = 2  # Maximum 2 iterations per chunk (cost-optimized default)
 MAX_BREADTH = 5  # Maximum 5 search strings per verification (was 20)
 CHUNKS_PER_SEARCH = 2  # Number of chunks to retrieve per search string
 # Chunk addition mode: "EXPLANATORY" (only direct answers) or "RELATED" (includes related chunks)
@@ -81,10 +82,11 @@ RERANK_TOP_K = 10           # Number of chunks to rerank (increased proportional
 CONTEXT_SIZE = 2            # Number of chunks to use as final context
 
 # Paths (configured via main.py or config.yaml)
-# These defaults should match the pipeline's output directory structure
-EMBEDDINGS_DIR = "output/embeddings"
-CHUNKS_FILE = "output/chunks.json"
-IMAGE_BASE_DIR = "output/markdown"
+# These defaults are overridden by main.py's configure_retrieval_paths()
+_default_output = os.environ.get("MIRAGE_OUTPUT_DIR", "output")
+EMBEDDINGS_DIR = os.path.join(_default_output, "embeddings")
+CHUNKS_FILE = os.path.join(_default_output, "chunks.json")
+IMAGE_BASE_DIR = os.path.join(_default_output, "markdown")
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -163,13 +165,38 @@ def retrieve_and_rerank(query: str, model_name: str = None,
     import sys
     this_module = sys.modules[__name__]
     
-    # Get model name from main's config if not specified
+    # Get model name and index prefix - read from existing files
+    import glob
+    import os
+    index_prefix = None  # Prefix used in filenames (e.g., "auto")
+    
     if model_name is None:
-        try:
-            import main
-            model_name = getattr(main, 'EMBEDDING_MODEL', 'bge_m3')
-        except:
-            model_name = 'bge_m3'  # Default fallback
+        existing_metadata = glob.glob(os.path.join(EMBEDDINGS_DIR, "*_metadata.json"))
+        if existing_metadata:
+            metadata_file = existing_metadata[0]
+            # Extract prefix from filename (e.g., "auto_metadata.json" -> "auto")
+            index_prefix = os.path.basename(metadata_file).replace("_metadata.json", "")
+            # Read actual model name from metadata
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                    model_name = metadata.get('model', index_prefix)
+            except:
+                model_name = index_prefix
+        
+        if model_name is None:
+            # Fall back to config if no metadata exists
+            try:
+                from mirage import main as main_module
+                model_name = getattr(main_module, 'EMBEDDING_MODEL', 'bge_m3')
+                index_prefix = model_name.replace('/', '_').replace('\\', '_')
+            except:
+                model_name = 'bge_m3'
+                index_prefix = 'bge_m3'
+    
+    # If index_prefix not set, derive from model_name
+    if index_prefix is None:
+        index_prefix = model_name.replace('/', '_').replace('\\', '_') if model_name else 'bge_m3'
     
     # Check if caching is enabled and cached embeddings/index are available
     cache_enabled = False
@@ -223,8 +250,8 @@ def retrieve_and_rerank(query: str, model_name: str = None,
             chunks = json.load(f)
         print(f"Loaded {len(chunks)} chunks")
         
-        # Load FAISS index from disk
-        index_path = f"{EMBEDDINGS_DIR}/{model_name}_index.faiss"
+        # Load FAISS index from disk (use index_prefix for filename)
+        index_path = f"{EMBEDDINGS_DIR}/{index_prefix}_index.faiss"
         print(f"Loading FAISS index from {index_path}...")
         cpu_index = faiss.read_index(index_path)
         
@@ -243,8 +270,8 @@ def retrieve_and_rerank(query: str, model_name: str = None,
             print(f"⚠️ Could not use FAISS GPU: {e}")
             index = cpu_index
         
-        # Load metadata
-        metadata_path = f"{EMBEDDINGS_DIR}/{model_name}_metadata.json"
+        # Load metadata (use index_prefix for filename)
+        metadata_path = f"{EMBEDDINGS_DIR}/{index_prefix}_metadata.json"
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         chunk_ids = metadata['chunk_ids']

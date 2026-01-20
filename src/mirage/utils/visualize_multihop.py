@@ -2,7 +2,7 @@
 """
 Multihop QA Visualization - Shows keyword chains linking chunks to QA pairs.
 
-Flow: Context → Keywords per chunk → Related keywords → Keyword chain → QA
+Flow: Initial Chunk → [Depth 1: Queries → Chunks] → [Depth 2: ...] → Context → Keywords → QA
 
 Usage:
     python visualize_multihop.py [--qa-file PATH] [--index N] [--output PATH]
@@ -14,8 +14,12 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set
 
-def extract_keywords_from_text(text: str, keywords: Set[str]) -> List[tuple]:
-    """Find all keyword occurrences in text with positions."""
+def highlight_keywords_html(text: str, keywords: Set[str], color: str = "#00d4ff") -> str:
+    """Highlight keywords in text with HTML spans."""
+    if not keywords:
+        return text.replace('\n', '<br>')
+    
+    # Find all keyword matches
     matches = []
     text_lower = text.lower()
     for kw in keywords:
@@ -27,19 +31,15 @@ def extract_keywords_from_text(text: str, keywords: Set[str]) -> List[tuple]:
                 break
             matches.append((pos, pos + len(kw), kw))
             start = pos + 1
-    return sorted(matches, key=lambda x: x[0])
-
-def highlight_keywords_html(text: str, keywords: Set[str], color: str = "#ffeb3b") -> str:
-    """Highlight keywords in text with HTML spans."""
-    matches = extract_keywords_from_text(text, keywords)
+    
     if not matches:
         return text.replace('\n', '<br>')
     
-    # Merge overlapping matches
+    # Sort and merge overlapping
+    matches.sort(key=lambda x: x[0])
     merged = []
     for start, end, kw in matches:
         if merged and start < merged[-1][1]:
-            # Overlap - extend previous
             merged[-1] = (merged[-1][0], max(merged[-1][1], end), merged[-1][2])
         else:
             merged.append((start, end, kw))
@@ -49,7 +49,7 @@ def highlight_keywords_html(text: str, keywords: Set[str], color: str = "#ffeb3b
     last_end = 0
     for start, end, kw in merged:
         result.append(text[last_end:start].replace('\n', '<br>'))
-        result.append(f'<span class="keyword" style="background:{color};padding:2px 4px;border-radius:3px;font-weight:600;">{text[start:end]}</span>')
+        result.append(f'<span class="kw" style="background:{color};color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">{text[start:end]}</span>')
         last_end = end
     result.append(text[last_end:].replace('\n', '<br>'))
     return ''.join(result)
@@ -63,7 +63,6 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
     context_chunks = qa_item.get('context_chunks', [])
     keywords_per_chunk = qa_item.get('keywords_per_chunk', {})
     related_keywords = qa_item.get('related_keywords', '')
-    search_history = qa_item.get('search_history', [])
     iteration_logs = qa_item.get('iteration_logs', [])
     hop_count = qa_item.get('hop_count', 0)
     depth_reached = qa_item.get('depth_reached', 0)
@@ -73,11 +72,13 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
     for chunk_kws in keywords_per_chunk.values():
         all_keywords.update(chunk_kws)
     
-    # Color palette for chunks
-    chunk_colors = ['#e3f2fd', '#fff3e0', '#e8f5e9', '#fce4ec', '#f3e5f5', '#e0f7fa']
-    keyword_colors = ['#42a5f5', '#ff9800', '#66bb6a', '#ec407a', '#ab47bc', '#26c6da']
+    # Get initial chunk
+    initial_chunk = context_chunks[0] if context_chunks else {}
     
-    html = f'''<!DOCTYPE html>
+    # Color palette
+    query_colors = ['#42a5f5', '#ff9800', '#66bb6a', '#ec407a', '#ab47bc', '#26c6da', '#ffca28', '#78909c']
+    
+    html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -85,370 +86,442 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
     <title>Multihop QA Visualization</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
             font-family: 'Space Grotesk', sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
             min-height: 100vh;
-            color: #e8e8e8;
+            color: #e6edf3;
             padding: 2rem;
-        }}
-        .container {{ max-width: 1400px; margin: 0 auto; }}
-        h1 {{
+        }
+        .container { max-width: 1600px; margin: 0 auto; }
+        h1 {
             text-align: center;
-            font-size: 2.5rem;
+            font-size: 2.2rem;
             margin-bottom: 0.5rem;
-            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+            background: linear-gradient(90deg, #58a6ff, #a371f7);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-        }}
-        .subtitle {{
-            text-align: center;
-            color: #888;
-            margin-bottom: 2rem;
-            font-size: 1.1rem;
-        }}
-        .stats {{
+        }
+        .subtitle { text-align: center; color: #8b949e; margin-bottom: 2rem; }
+        
+        .stats {
             display: flex;
             justify-content: center;
-            gap: 2rem;
+            gap: 1.5rem;
             margin-bottom: 2rem;
-        }}
-        .stat {{
-            background: rgba(255,255,255,0.05);
-            padding: 1rem 2rem;
-            border-radius: 12px;
+        }
+        .stat {
+            background: #21262d;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
             text-align: center;
-            border: 1px solid rgba(255,255,255,0.1);
-        }}
-        .stat-value {{
-            font-size: 2rem;
-            font-weight: 700;
-            color: #00d4ff;
-        }}
-        .stat-label {{ color: #888; font-size: 0.9rem; }}
+            border: 1px solid #30363d;
+        }
+        .stat-value { font-size: 1.8rem; font-weight: 700; color: #58a6ff; }
+        .stat-label { color: #8b949e; font-size: 0.85rem; }
         
-        .section {{
-            background: rgba(255,255,255,0.03);
-            border-radius: 16px;
+        .section {
+            background: #161b22;
+            border-radius: 12px;
             padding: 1.5rem;
             margin-bottom: 1.5rem;
-            border: 1px solid rgba(255,255,255,0.08);
-        }}
-        .section-title {{
-            font-size: 1.2rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: #00d4ff;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }}
-        .section-title::before {{
-            content: '';
-            width: 4px;
-            height: 20px;
-            background: linear-gradient(180deg, #00d4ff, #7b2ff7);
-            border-radius: 2px;
-        }}
-        
-        .chunks-container {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1rem;
-        }}
-        .chunk {{
-            background: rgba(0,0,0,0.3);
-            border-radius: 12px;
-            padding: 1rem;
-            border-left: 4px solid;
-        }}
-        .chunk-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }}
-        .chunk-id {{
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
-            padding: 4px 8px;
-            border-radius: 6px;
-            background: rgba(255,255,255,0.1);
-        }}
-        .chunk-content {{
-            font-size: 0.9rem;
-            line-height: 1.6;
-            color: #ccc;
-            max-height: 200px;
-            overflow-y: auto;
-        }}
-        .chunk-keywords {{
-            margin-top: 0.75rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }}
-        .keyword-tag {{
-            font-size: 0.75rem;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-weight: 500;
-        }}
-        
-        .keyword-chain {{
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 1rem;
-            background: rgba(0,0,0,0.2);
-            border-radius: 12px;
-        }}
-        .chain-keyword {{
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.9rem;
-        }}
-        .chain-arrow {{
-            color: #00d4ff;
-            font-size: 1.5rem;
-        }}
-        
-        .qa-box {{
-            background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(123,47,247,0.1));
-            border-radius: 12px;
-            padding: 1.5rem;
-            border: 1px solid rgba(0,212,255,0.3);
-        }}
-        .question {{
+            border: 1px solid #30363d;
+        }
+        .section-title {
             font-size: 1.1rem;
-            line-height: 1.7;
+            font-weight: 600;
             margin-bottom: 1rem;
-        }}
-        .question-label {{
-            color: #00d4ff;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }}
-        .answer {{
-            background: rgba(0,0,0,0.3);
-            padding: 1rem;
-            border-radius: 8px;
-            line-height: 1.7;
-        }}
-        .answer-label {{
-            color: #66bb6a;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }}
-        
-        .search-history {{
+            color: #58a6ff;
             display: flex;
-            flex-wrap: wrap;
-            gap: 0.75rem;
-        }}
-        .search-query {{
-            background: rgba(255,255,255,0.1);
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
-            border: 1px solid rgba(255,255,255,0.2);
-        }}
+            align-items: center;
+            gap: 0.5rem;
+        }
         
-        .iteration {{
-            background: rgba(0,0,0,0.2);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 0.75rem;
-        }}
-        .iteration-header {{
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 0.5rem;
-        }}
-        .iteration-depth {{
-            font-weight: 600;
-            color: #ab47bc;
-        }}
-        .iteration-status {{
-            padding: 4px 10px;
-            border-radius: 6px;
+        .initial-chunk {
+            background: #0d1117;
+            border: 2px solid #58a6ff;
+            border-radius: 10px;
+            padding: 1.25rem;
+        }
+        .initial-label {
+            background: #58a6ff;
+            color: #0d1117;
+            padding: 4px 12px;
+            border-radius: 4px;
             font-size: 0.8rem;
             font-weight: 600;
-        }}
-        .status-complete {{ background: rgba(102,187,106,0.3); color: #66bb6a; }}
-        .status-incomplete {{ background: rgba(255,152,0,0.3); color: #ff9800; }}
+            margin-bottom: 0.75rem;
+            display: inline-block;
+        }
+        .chunk-content {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: #c9d1d9;
+            max-height: 150px;
+            overflow-y: auto;
+        }
         
-        .keyword {{ font-weight: 600; }}
+        .depth-section {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px dashed #30363d;
+        }
+        .depth-section:last-child { border-bottom: none; }
+        .depth-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .depth-badge {
+            background: #a371f7;
+            color: #0d1117;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .depth-status {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-complete { background: rgba(63,185,80,0.2); color: #3fb950; }
+        .status-incomplete { background: rgba(210,153,34,0.2); color: #d29922; }
+        .depth-explanation {
+            color: #8b949e;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            font-style: italic;
+        }
         
-        @media (max-width: 768px) {{
-            .chunks-container {{ grid-template-columns: 1fr; }}
-            .stats {{ flex-wrap: wrap; }}
-        }}
+        .queries-grid {
+            display: grid;
+            gap: 1rem;
+        }
+        .query-column {
+            background: #0d1117;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .query-header {
+            padding: 0.75rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: #0d1117;
+            font-weight: 600;
+        }
+        .query-chunks {
+            padding: 0.75rem;
+        }
+        .retrieved-chunk {
+            background: #21262d;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid;
+        }
+        .retrieved-chunk:last-child { margin-bottom: 0; }
+        .chunk-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .chunk-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(255,255,255,0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .chunk-verdict {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .verdict-related { background: rgba(63,185,80,0.2); color: #3fb950; }
+        .verdict-explanatory { background: rgba(88,166,255,0.2); color: #58a6ff; }
+        .no-chunks {
+            color: #8b949e;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 1rem;
+        }
+        
+        .context-box {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        .context-chunks-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .context-chunk-tag {
+            background: #21262d;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            border: 1px solid #30363d;
+        }
+        
+        .keyword-chain {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem;
+            background: #0d1117;
+            border-radius: 8px;
+        }
+        .chain-kw {
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .chain-arrow { color: #58a6ff; font-size: 1.3rem; }
+        .chain-relation { color: #8b949e; font-size: 0.8rem; margin: 0 0.5rem; }
+        
+        .qa-box {
+            background: linear-gradient(135deg, rgba(88,166,255,0.1), rgba(163,113,247,0.1));
+            border-radius: 10px;
+            padding: 1.5rem;
+            border: 1px solid rgba(88,166,255,0.3);
+        }
+        .qa-label { font-weight: 600; margin-bottom: 0.5rem; }
+        .question-label { color: #58a6ff; }
+        .answer-label { color: #3fb950; }
+        .question-text, .answer-text {
+            font-size: 1rem;
+            line-height: 1.7;
+            margin-bottom: 1rem;
+        }
+        .answer-text {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0;
+        }
+        
+        .kw { font-weight: 600; }
+        .flow-arrow {
+            text-align: center;
+            color: #58a6ff;
+            font-size: 2rem;
+            padding: 0.5rem 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔗 Multihop QA Visualization</h1>
-        <p class="subtitle">Context → Keywords → Keyword Chain → QA Generation</p>
+        <p class="subtitle">Initial Chunk → Retrieval Iterations → Context → Keyword Chain → QA</p>
         
         <div class="stats">
             <div class="stat">
-                <div class="stat-value">{len(context_chunks)}</div>
-                <div class="stat-label">Chunks Used</div>
+                <div class="stat-value">''' + str(len(context_chunks)) + '''</div>
+                <div class="stat-label">Total Chunks</div>
             </div>
             <div class="stat">
-                <div class="stat-value">{hop_count}</div>
+                <div class="stat-value">''' + str(hop_count) + '''</div>
                 <div class="stat-label">Hops</div>
             </div>
             <div class="stat">
-                <div class="stat-value">{depth_reached}</div>
-                <div class="stat-label">Depth Reached</div>
+                <div class="stat-value">''' + str(depth_reached) + '''</div>
+                <div class="stat-label">Depth</div>
             </div>
             <div class="stat">
-                <div class="stat-value">{len(all_keywords)}</div>
+                <div class="stat-value">''' + str(len(all_keywords)) + '''</div>
                 <div class="stat-label">Keywords</div>
             </div>
         </div>
 '''
     
-    # Search History Section
-    if search_history:
-        html += '''
+    # Initial Chunk Section
+    initial_keywords = set(keywords_per_chunk.get('chunk_1', []))
+    initial_content = initial_chunk.get('content', '')[:600]
+    initial_highlighted = highlight_keywords_html(initial_content, initial_keywords, '#58a6ff')
+    
+    html += f'''
         <div class="section">
-            <div class="section-title">🔍 Search Queries (Retrieval Process)</div>
-            <div class="search-history">
-'''
-        for query in search_history:
-            html += f'                <div class="search-query">{query}</div>\n'
-        html += '''            </div>
+            <div class="section-title">📄 Initial Chunk</div>
+            <div class="initial-chunk">
+                <span class="initial-label">SEED CHUNK · {initial_chunk.get('file_name', 'unknown')}:{initial_chunk.get('chunk_id', '?')}</span>
+                <div class="chunk-content">{initial_highlighted}</div>
+            </div>
         </div>
+        
+        <div class="flow-arrow">↓</div>
 '''
     
-    # Chunks Section
+    # Retrieval Iterations Section
     html += '''
         <div class="section">
-            <div class="section-title">📄 Context Chunks with Keywords</div>
-            <div class="chunks-container">
+            <div class="section-title">🔄 Retrieval Iterations</div>
+'''
+    
+    for log in iteration_logs:
+        depth = log.get('depth', 0)
+        status = log.get('status', 'UNKNOWN')
+        explanation = log.get('explanation', '')
+        search_strings = log.get('search_strings', [])
+        retrieved_chunks = log.get('retrieved_chunks', [])
+        
+        status_class = 'status-complete' if status == 'COMPLETE' else 'status-incomplete'
+        
+        # Group retrieved chunks by query
+        chunks_by_query = {}
+        for rc in retrieved_chunks:
+            query = rc.get('search_query', 'Unknown Query')
+            if query not in chunks_by_query:
+                chunks_by_query[query] = []
+            chunks_by_query[query].append(rc)
+        
+        # Determine grid columns based on number of queries
+        num_queries = len(search_strings) if search_strings else 1
+        grid_cols = f'repeat({min(num_queries, 4)}, 1fr)'
+        
+        html += f'''
+            <div class="depth-section">
+                <div class="depth-header">
+                    <span class="depth-badge">DEPTH {depth}</span>
+                    <span class="depth-status {status_class}">{status}</span>
+                </div>
+                <p class="depth-explanation">{explanation}</p>
+                <div class="queries-grid" style="grid-template-columns: {grid_cols};">
+'''
+        
+        if search_strings:
+            for q_idx, query in enumerate(search_strings):
+                color = query_colors[q_idx % len(query_colors)]
+                chunks_for_query = chunks_by_query.get(query, [])
+                
+                html += f'''
+                    <div class="query-column">
+                        <div class="query-header" style="background:{color};">🔍 Query {q_idx + 1}: {query[:50]}{'...' if len(query) > 50 else ''}</div>
+                        <div class="query-chunks">
+'''
+                
+                if chunks_for_query:
+                    for chunk in chunks_for_query:
+                        chunk_id = chunk.get('chunk_id', '?')
+                        file_name = chunk.get('file_name', 'unknown')
+                        verdict = chunk.get('verdict', 'RELATED')
+                        reason = chunk.get('reason', '')[:100]
+                        verdict_class = 'verdict-explanatory' if verdict == 'EXPLANATORY' else 'verdict-related'
+                        
+                        html += f'''
+                            <div class="retrieved-chunk" style="border-color:{color};">
+                                <div class="chunk-header">
+                                    <span class="chunk-id">{file_name}:{chunk_id}</span>
+                                    <span class="chunk-verdict {verdict_class}">{verdict}</span>
+                                </div>
+                                <div style="font-size:0.8rem;color:#8b949e;">{reason}...</div>
+                            </div>
+'''
+                else:
+                    html += '<div class="no-chunks">No chunks retrieved</div>'
+                
+                html += '''
+                        </div>
+                    </div>
+'''
+        else:
+            html += '<div class="no-chunks">No queries at this depth</div>'
+        
+        html += '''
+                </div>
+            </div>
+'''
+    
+    html += '''
+        </div>
+        
+        <div class="flow-arrow">↓</div>
+'''
+    
+    # Final Context Section
+    html += '''
+        <div class="section">
+            <div class="section-title">📚 Final Context (All Chunks)</div>
+            <div class="context-box">
+                <div class="context-chunks-list">
 '''
     
     for i, chunk in enumerate(context_chunks):
-        color = chunk_colors[i % len(chunk_colors)]
-        kw_color = keyword_colors[i % len(keyword_colors)]
-        chunk_id = chunk.get('chunk_id', f'chunk_{i+1}')
+        chunk_id = chunk.get('chunk_id', f'{i+1}')
         file_name = chunk.get('file_name', 'unknown')
-        content = chunk.get('content', '')[:500]  # Truncate for display
-        classification = chunk.get('classification', 'INITIAL')
-        
-        # Get keywords for this chunk
-        chunk_key = f'chunk_{i+1}'
-        chunk_keywords = set(keywords_per_chunk.get(chunk_key, []))
-        
-        highlighted_content = highlight_keywords_html(content, chunk_keywords, kw_color)
-        
-        html += f'''
-                <div class="chunk" style="border-color: {kw_color};">
-                    <div class="chunk-header">
-                        <span class="chunk-id">Chunk {chunk_id}</span>
-                        <span style="font-size:0.8rem;color:#888;">{classification}</span>
-                    </div>
-                    <div class="chunk-content">{highlighted_content}</div>
-                    <div class="chunk-keywords">
-'''
-        for kw in list(chunk_keywords)[:6]:  # Show top 6 keywords
-            html += f'                        <span class="keyword-tag" style="background:{kw_color}33;color:{kw_color};">{kw}</span>\n'
-        html += '''                    </div>
-                </div>
-'''
+        classification = chunk.get('classification', 'INITIAL' if i == 0 else 'RELATED')
+        html += f'<span class="context-chunk-tag">{file_name}:{chunk_id} ({classification})</span>\n'
     
-    html += '''            </div>
+    html += '''
+                </div>
+            </div>
         </div>
+        
+        <div class="flow-arrow">↓</div>
 '''
     
     # Keyword Chain Section
     if related_keywords:
         html += '''
         <div class="section">
-            <div class="section-title">🔗 Keyword Relationships (Chain)</div>
+            <div class="section-title">🔗 Keyword Chain (Cross-Chunk Connections)</div>
             <div class="keyword-chain">
 '''
-        # Parse the related_keywords string
         relationships = related_keywords.split(';')
         for i, rel in enumerate(relationships):
             rel = rel.strip()
             if rel:
-                # Extract keywords from format: [keyword1] relates to [keyword2] via connection
                 match = re.search(r'\[([^\]]+)\].*\[([^\]]+)\].*via\s+(.+)', rel)
                 if match:
                     kw1, kw2, connection = match.groups()
-                    color = keyword_colors[i % len(keyword_colors)]
-                    html += f'''                <span class="chain-keyword" style="background:{color}33;color:{color};">{kw1}</span>
+                    color = query_colors[i % len(query_colors)]
+                    html += f'''
+                <span class="chain-kw" style="background:{color}33;color:{color};">{kw1}</span>
                 <span class="chain-arrow">→</span>
-                <span class="chain-keyword" style="background:{color}33;color:{color};">{kw2}</span>
-                <span style="color:#888;font-size:0.85rem;margin:0 1rem;">({connection})</span>
+                <span class="chain-kw" style="background:{color}33;color:{color};">{kw2}</span>
+                <span class="chain-relation">({connection})</span>
 '''
-        html += '''            </div>
-        </div>
-'''
-    
-    # Iteration Logs Section
-    if iteration_logs:
         html += '''
-        <div class="section">
-            <div class="section-title">📊 Retrieval Iterations</div>
-'''
-        for log in iteration_logs:
-            depth = log.get('depth', 0)
-            status = log.get('status', 'UNKNOWN')
-            explanation = log.get('explanation', '')
-            chunks_added = log.get('chunks_added_this_iteration', [])
-            status_class = 'status-complete' if status == 'COMPLETE' else 'status-incomplete'
-            
-            html += f'''
-            <div class="iteration">
-                <div class="iteration-header">
-                    <span class="iteration-depth">Depth {depth}</span>
-                    <span class="iteration-status {status_class}">{status}</span>
-                </div>
-                <p style="color:#aaa;font-size:0.9rem;">{explanation}</p>
-                <p style="color:#888;font-size:0.85rem;margin-top:0.5rem;">Chunks added: {len(chunks_added)}</p>
-            </div>
-'''
-        html += '''        </div>
-'''
-    
-    # QA Section with highlighted keywords
-    html += '''
-        <div class="section">
-            <div class="section-title">❓ Generated Question & Answer</div>
-            <div class="qa-box">
-                <div class="question-label">Question:</div>
-                <div class="question">
-'''
-    html += highlight_keywords_html(question, all_keywords, '#00d4ff')
-    html += '''
-                </div>
-                <div class="answer-label">Answer:</div>
-                <div class="answer">
-'''
-    html += highlight_keywords_html(answer, all_keywords, '#66bb6a')
-    html += '''
-                </div>
             </div>
         </div>
         
-        <div style="text-align:center;color:#666;padding:2rem 0;font-size:0.9rem;">
-            Generated by Multihop QA Pipeline | Keywords highlighted show concept linkage across chunks
+        <div class="flow-arrow">↓</div>
+'''
+    
+    # Generated QA Section
+    question_highlighted = highlight_keywords_html(question, all_keywords, '#58a6ff')
+    answer_highlighted = highlight_keywords_html(answer, all_keywords, '#3fb950')
+    
+    html += f'''
+        <div class="section">
+            <div class="section-title">❓ Generated Question & Answer</div>
+            <div class="qa-box">
+                <div class="qa-label question-label">Question:</div>
+                <div class="question-text">{question_highlighted}</div>
+                <div class="qa-label answer-label">Answer:</div>
+                <div class="answer-text">{answer_highlighted}</div>
+            </div>
+        </div>
+        
+        <div style="text-align:center;color:#8b949e;padding:2rem 0;font-size:0.85rem;">
+            Generated by MiRAGe QA Pipeline | Keywords highlighted show concept linkage across chunks
         </div>
     </div>
 </body>
 </html>
 '''
     
-    # Write to file if output path provided
     if output_path:
         Path(output_path).write_text(html, encoding='utf-8')
         print(f"✅ Visualization saved to: {output_path}")
@@ -465,7 +538,6 @@ def main():
                         help='Output HTML file path')
     args = parser.parse_args()
     
-    # Load QA data
     qa_file = Path(args.qa_file)
     if not qa_file.exists():
         print(f"❌ QA file not found: {qa_file}")
@@ -478,7 +550,6 @@ def main():
         print("❌ No QA pairs found in file")
         return
     
-    # Get specified QA pair
     index = min(args.index, len(qa_data) - 1)
     qa_item = qa_data[index]
     
@@ -487,7 +558,6 @@ def main():
     print(f"   Chunks: {len(qa_item.get('context_chunks', []))}")
     print(f"   Hop count: {qa_item.get('hop_count', 0)}")
     
-    # Generate visualization
     generate_html_visualization(qa_item, args.output)
 
 if __name__ == '__main__':

@@ -66,6 +66,18 @@ Examples:
   # Run preflight checks
   python run_mirage.py --preflight
 
+  # Enable optional steps (deduplication and evaluation)
+  python run_mirage.py -i data/documents -o output/my_dataset --deduplication --evaluation
+
+Pipeline Steps:
+  1. PDF/HTML to Markdown conversion (mandatory)
+  2. Semantic chunking (mandatory)
+  3. Embedding and indexing (mandatory)
+  4. Domain/expert detection (mandatory)
+  5. QA generation and verification (mandatory)
+  6. Deduplication (OFF by default - enable with --deduplication)
+  7. Evaluation metrics (OFF by default - enable with --evaluation)
+
 Environment Variables:
   GEMINI_API_KEY    - Google Gemini API key
   OPENAI_API_KEY    - OpenAI API key
@@ -128,6 +140,16 @@ Environment Variables:
         action="store_true",
         help="Skip chunking (use existing chunks.json)"
     )
+    parser.add_argument(
+        "--deduplication",
+        action="store_true",
+        help="Enable QA deduplication step (off by default)"
+    )
+    parser.add_argument(
+        "--evaluation",
+        action="store_true",
+        help="Enable evaluation metrics computation (off by default)"
+    )
     
     # QA generation options
     parser.add_argument(
@@ -173,6 +195,24 @@ def setup_environment(args):
     # Set model if provided
     if args.model:
         os.environ["MIRAGE_MODEL"] = args.model
+    
+    # Set input/output directories (override config.yaml)
+    if args.input:
+        os.environ["MIRAGE_INPUT_DIR"] = args.input
+    if args.output:
+        os.environ["MIRAGE_OUTPUT_DIR"] = args.output
+    
+    # Set QA generation parameters
+    if args.num_qa_pairs:
+        os.environ["MIRAGE_NUM_QA_PAIRS"] = str(args.num_qa_pairs)
+    if args.max_workers:
+        os.environ["MIRAGE_MAX_WORKERS"] = str(args.max_workers)
+    
+    # Set optional pipeline flags (off by default, enable with flags)
+    if args.deduplication:
+        os.environ["MIRAGE_RUN_DEDUPLICATION"] = "1"
+    if args.evaluation:
+        os.environ["MIRAGE_RUN_EVALUATION"] = "1"
 
 
 def validate_args(args):
@@ -255,6 +295,8 @@ def main():
     logger.info(f"Output directory: {args.output}")
     logger.info(f"Target QA pairs: {args.num_qa_pairs}")
     logger.info(f"Workers: {args.max_workers}")
+    logger.info(f"Deduplication: {'ENABLED' if args.deduplication else 'OFF (use --deduplication to enable)'}")
+    logger.info(f"Evaluation: {'ENABLED' if args.evaluation else 'OFF (use --evaluation to enable)'}")
     
     # Create output directory
     os.makedirs(args.output, exist_ok=True)
