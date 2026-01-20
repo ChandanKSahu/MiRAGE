@@ -380,7 +380,6 @@ For programmatic access, you can import and use MiRAGE modules directly:
 ```python
 # Import the main pipeline
 from mirage import run_pipeline
-
 # Or import specific components
 from mirage.core.llm import call_llm_simple, call_vlm_interweaved
 from mirage.pipeline.context import build_complete_context
