@@ -309,8 +309,8 @@ class VLMReranker(ChunkReranker):
     """VLM-based reranker using Motor Maven endpoint with multiple images"""
     
     def __init__(self):
-        from call_llm import call_vlm_with_multiple_images
-        from prompt import PROMPTS
+        from mirage.core.llm import call_vlm_with_multiple_images
+        from mirage.core.prompts import PROMPTS
         
         self.call_vlm_multi = call_vlm_with_multiple_images
         self.rerank_prompt = PROMPTS["rerank_vlm"]
@@ -378,7 +378,7 @@ Chunks to rank:
             # Call VLM with all images
             if not image_paths:
                 # No images - use LLM fallback instead of VLM
-                from call_llm import call_llm_simple
+                from mirage.core.llm import call_llm_simple
                 response = call_llm_simple(full_prompt)
             else:
                 response = self.call_vlm_multi(full_prompt, image_paths)
@@ -584,8 +584,8 @@ class TextEmbeddingReranker(ChunkReranker):
         print(f"✅ Text embedding model loaded on {self.device}")
         
         # For generating image descriptions (reuse VLM)
-        from call_llm import call_vlm_simple
-        from prompt import PROMPTS
+        from mirage.core.llm import call_vlm_simple
+        from mirage.core.prompts import PROMPTS
         self.call_vlm = call_vlm_simple
         self.desc_prompt = PROMPTS.get("rerank_image_desc", "Generate a concise 100-word technical description of this image.")
     
@@ -648,6 +648,139 @@ class TextEmbeddingReranker(ChunkReranker):
         except Exception as e:
             print(f"⚠️  Reranking failed: {e}")
             return [(i, 1.0, chunks[i]) for i in range(min(top_k, len(chunks)))]
+
+
+class GeminiVLMReranker(ChunkReranker):
+    """
+    Gemini API-based VLM reranker.
+    Uses Gemini for multimodal understanding to score chunk relevance.
+    Fully API-based - no local GPU required.
+    """
+    
+    def __init__(
+        self,
+        model_name: str = "gemini-2.5-flash",
+        timeout: int = 180
+    ):
+        import os
+        import requests
+        print(f"Initializing Gemini VLM Reranker with model: {model_name}")
+        
+        # Load API key from mirage config
+        from mirage.core.llm import API_KEY, _initialize_config
+        _initialize_config()
+        
+        self.api_key = API_KEY
+        if not self.api_key:
+            # Fallback to environment
+            self.api_key = os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+        
+        if not self.api_key:
+            raise ValueError("Gemini API key not found")
+        
+        self.model_name = model_name
+        self.timeout = timeout
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        
+        print(f"✅ Gemini VLM Reranker initialized (model: {model_name})")
+    
+    def _encode_image(self, image_path: str) -> Tuple[str, str]:
+        """Encode image to base64 with mime type"""
+        import base64
+        
+        ext = Path(image_path).suffix.lower()
+        mime_types = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                      '.gif': 'image/gif', '.webp': 'image/webp'}
+        mime_type = mime_types.get(ext, 'image/png')
+        
+        with open(image_path, 'rb') as f:
+            image_data = base64.b64encode(f.read()).decode('utf-8')
+        
+        return image_data, mime_type
+    
+    def _score_chunk(self, query: str, chunk: Dict[str, str]) -> float:
+        """Score chunk using Gemini API"""
+        import requests
+        import re
+        
+        url = self.base_url.format(model=self.model_name) + f"?key={self.api_key}"
+        
+        parts = [{
+            "text": f"""Evaluate if the following document is relevant to the query. 
+Rate the relevance on a scale from 0.0 to 1.0, where:
+- 0.0 means completely irrelevant
+- 1.0 means highly relevant
+
+Query: {query}
+
+Document:
+{chunk.get('text', '')}
+
+Respond with ONLY a decimal number between 0.0 and 1.0."""
+        }]
+        
+        # Add image if present
+        image_path = chunk.get('image_path')
+        if image_path and Path(image_path).exists():
+            try:
+                image_data, mime_type = self._encode_image(image_path)
+                parts.append({
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": image_data
+                    }
+                })
+            except Exception as e:
+                print(f"⚠️ Could not encode image {image_path}: {e}")
+        
+        payload = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {"temperature": 0.0}
+        }
+        
+        try:
+            response = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
+            # Parse score
+            try:
+                score = float(text)
+                return max(0.0, min(1.0, score))
+            except ValueError:
+                # Try to extract number from response
+                match = re.search(r'(\d+\.?\d*)', text)
+                if match:
+                    return max(0.0, min(1.0, float(match.group(1))))
+                return 0.5
+                
+        except Exception as e:
+            print(f"⚠️ Gemini reranking failed: {e}")
+            return 0.0
+    
+    def rerank(self, query: str, chunks: List[Dict[str, str]], top_k: int = 1) -> List[Tuple[int, float, Dict[str, str]]]:
+        """Rerank chunks using Gemini API"""
+        scores = []
+        for idx, chunk in enumerate(chunks):
+            score = self._score_chunk(query, chunk)
+            scores.append((idx, score))
+        
+        scores.sort(key=lambda x: x[1], reverse=True)
+        
+        result = []
+        for idx, score in scores[:top_k]:
+            if 0 <= idx < len(chunks):
+                result.append((idx, score, chunks[idx]))
+        
+        return result
+
 
 if __name__ == "__main__":
     from pathlib import Path

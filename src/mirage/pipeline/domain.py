@@ -300,20 +300,26 @@ def query_llm_for_domain(topic_model: BERTopic) -> Tuple[str, str]:
     domain = "Unknown"
     role = "Expert"
     
-    # Parse delimiter-based format:
-    # <|#|>START<|#|>
-    # <|#|>Domain: <The Domain> 
-    # <|#|>Expert Role: <The Expert Role>
-    # <|#|>END<|#|>
+    # Parse new delimiter-based format:
+    # <|#|>START<|#|>Domain<|#|><value><|#|>Expert Role<|#|><value><|#|>END<|#|>
     
     if '<|#|>' in response:
         parts = response.split('<|#|>')
-        for part in parts:
-            part = part.strip()
-            if part.lower().startswith("domain:"):
-                domain = part.split(":", 1)[1].strip()
-            elif part.lower().startswith("expert role:"):
-                role = part.split(":", 1)[1].strip()
+        for i, part in enumerate(parts):
+            part_lower = part.strip().lower()
+            if i + 1 < len(parts):
+                value = parts[i + 1].strip()
+                
+                # New format: Domain<|#|><value>
+                if part_lower == "domain":
+                    domain = value
+                elif part_lower == "expert role":
+                    role = value
+                # Legacy format: Domain: <value>
+                elif part_lower.startswith("domain:"):
+                    domain = part.strip().split(":", 1)[1].strip()
+                elif part_lower.startswith("expert role:"):
+                    role = part.strip().split(":", 1)[1].strip()
     else:
         # Fallback for line-based format if delimiters not found
         lines = [l.strip() for l in response.split('\n') if l.strip()]
@@ -323,7 +329,7 @@ def query_llm_for_domain(topic_model: BERTopic) -> Tuple[str, str]:
             elif line.lower().startswith("expert role:"):
                 role = line.split(":", 1)[1].strip()
     
-    # Clean up domain string if it contains multiple lines (fix for double printing issue)
+    # Clean up domain string if it contains multiple lines
     if "\n" in domain:
         domain = domain.split("\n")[0].strip()
         

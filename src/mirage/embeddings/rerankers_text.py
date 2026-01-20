@@ -18,7 +18,10 @@ class LLMReranker:
         self.completion_delimiter = PROMPTS.get("DEFAULT_COMPLETION_DELIMITER", "<|#|>END<|#|>")
 
     def _parse_qa_pairs(self, response_text: str) -> List[Dict[str, str]]:
-        """Parses QA pairs from the |#| delimited format."""
+        """Parses QA pairs from the delimiter format.
+        
+        New format: <|#|>START<|#|>Question<|#|><text><|#|>Answer<|#|><text><|#|>NEXT<|#|>...<|#|>END<|#|>
+        """
         qa_pairs = []
         try:
             # Remove completion delimiter if present
@@ -27,26 +30,48 @@ class LLMReranker:
         
             # Remove START delimiter if present
             start_delimiter = self.tuple_delimiter + "START" + self.tuple_delimiter
-            if response_text.startswith(start_delimiter):
-                response_text = response_text[len(start_delimiter):].strip()
+            if start_delimiter in response_text:
+                response_text = response_text.split(start_delimiter, 1)[-1].strip()
             
-            lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+            # Split by NEXT delimiter to handle multiple QA pairs
+            next_delimiter = self.tuple_delimiter + "NEXT" + self.tuple_delimiter
+            sections = response_text.split(next_delimiter)
             
-            for line in lines:
-                # Skip NEXT lines
-                next_delimiter = self.tuple_delimiter + "NEXT" + self.tuple_delimiter
-                if line == next_delimiter:
+            for section in sections:
+                section = section.strip()
+                if not section:
                     continue
                 
-                # Check for Question delimiter pattern
-                if line.startswith("Question" + self.tuple_delimiter) or line.startswith("question" + self.tuple_delimiter):
-                    parts = line.split(self.tuple_delimiter)
-                    # Expected: Question<|#|>Q<|#|>Answer<|#|>A...
-                    if len(parts) >= 4 and parts[0].lower() == "question" and parts[2].lower() == "answer":
-                        question = parts[1].strip()
-                        answer = parts[3].strip()
-                        if question and answer:
-                            qa_pairs.append({"question": question, "answer": answer})
+                parts = section.split(self.tuple_delimiter)
+                question = None
+                answer = None
+                
+                # Parse key-value pairs from parts
+                for i, part in enumerate(parts):
+                    part_lower = part.strip().lower()
+                    if i + 1 < len(parts):
+                        value = parts[i + 1].strip()
+                        if part_lower == "question":
+                            question = value
+                        elif part_lower == "answer":
+                            answer = value
+                
+                if question and answer:
+                    qa_pairs.append({"question": question, "answer": answer})
+            
+            # Fallback: try line-by-line parsing for inline format
+            if not qa_pairs:
+                lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+                for line in lines:
+                    if line == next_delimiter:
+                        continue
+                    if line.startswith("Question" + self.tuple_delimiter) or line.startswith("question" + self.tuple_delimiter):
+                        parts = line.split(self.tuple_delimiter)
+                        if len(parts) >= 4 and parts[0].lower() == "question" and parts[2].lower() == "answer":
+                            question = parts[1].strip()
+                            answer = parts[3].strip()
+                            if question and answer:
+                                qa_pairs.append({"question": question, "answer": answer})
                             
             return qa_pairs
         except Exception as e:

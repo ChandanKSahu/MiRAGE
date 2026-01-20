@@ -26,6 +26,57 @@ def get_device_map_for_gpus(gpus: Optional[List[int]] = None) -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
+def _resolve_local_model_path(model_name: str) -> str:
+    """Check for locally downloaded models before falling back to HuggingFace.
+    
+    Checks these locations in order:
+    1. ./models/{model_name}
+    2. ../models/{model_name}
+    3. ~/models/{model_name}
+    4. HuggingFace cache (~/.cache/huggingface/hub/models--{model_name})
+    
+    Returns the local path if found, otherwise the original model_name for HuggingFace download.
+    """
+    # Extract model short name from HuggingFace path (e.g., "Qwen/Qwen3-VL-Embedding-8B" -> "Qwen3-VL-Embedding-8B")
+    if "/" in model_name:
+        short_name = model_name.split("/")[-1]
+    else:
+        short_name = model_name
+    
+    # Possible local directories to check
+    local_dirs = [
+        os.path.join(".", "models", short_name),
+        os.path.join("..", "models", short_name),
+        os.path.expanduser(os.path.join("~", "models", short_name)),
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", short_name),
+    ]
+    
+    for local_path in local_dirs:
+        abs_path = os.path.abspath(local_path)
+        # Check if directory exists and has config.json (indicates valid model)
+        if os.path.isdir(abs_path) and os.path.exists(os.path.join(abs_path, "config.json")):
+            print(f"📂 Found local model at: {abs_path}")
+            return abs_path
+    
+    # Check HuggingFace cache
+    hf_cache_name = f"models--{model_name.replace('/', '--')}"
+    hf_cache_path = os.path.expanduser(os.path.join("~", ".cache", "huggingface", "hub", hf_cache_name))
+    if os.path.isdir(hf_cache_path):
+        # Find the latest snapshot
+        snapshots_dir = os.path.join(hf_cache_path, "snapshots")
+        if os.path.isdir(snapshots_dir):
+            snapshots = os.listdir(snapshots_dir)
+            if snapshots:
+                latest_snapshot = os.path.join(snapshots_dir, sorted(snapshots)[-1])
+                if os.path.exists(os.path.join(latest_snapshot, "config.json")):
+                    print(f"📂 Found cached model at: {latest_snapshot}")
+                    return latest_snapshot
+    
+    # No local model found, will download from HuggingFace
+    print(f"⬇️  Model not found locally, will download from HuggingFace: {model_name}")
+    return model_name
+
+
 # Multimodal Embedding Classes
 class BaseMultimodalEmbedder(ABC):
     """Abstract base class for multimodal embedders"""
@@ -99,7 +150,10 @@ class NomicVLEmbed(BaseMultimodalEmbedder):
         from transformers import BitsAndBytesConfig
         from colpali_engine.models import BiQwen2_5, BiQwen2_5_Processor
         
-        print(f"Loading Nomic: {model_name}")
+        # Check for local model first
+        resolved_path = _resolve_local_model_path(model_name)
+        
+        print(f"Loading Nomic: {resolved_path}")
         self._setup_hf_auth()
         
         # Use specified GPUs or default to cuda
@@ -127,14 +181,14 @@ class NomicVLEmbed(BaseMultimodalEmbedder):
         ) if is_cuda else None
         
         self.model = BiQwen2_5.from_pretrained(
-            model_name,
+            resolved_path,
             torch_dtype=torch.bfloat16,
             device_map=self.device,
             attn_implementation=attn_impl,
             quantization_config=quantization_config,
         ).eval()
         
-        self.processor = BiQwen2_5_Processor.from_pretrained(model_name)
+        self.processor = BiQwen2_5_Processor.from_pretrained(resolved_path)
         print(f"✅ Nomic loaded on {self.device}")
     
     def _setup_hf_auth(self):
@@ -255,6 +309,132 @@ class Qwen2VLEmbed(BaseMultimodalEmbedder):
             
             return embedding.flatten()
         return self.embed_text(text)
+
+
+class Qwen3VLEmbed(BaseMultimodalEmbedder):
+    """
+    Qwen3-VL Embedding model for multimodal embeddings
+    Preferred model for document embeddings with tables and images
+    """
+    
+    def __init__(self, model_name: str = "Qwen/Qwen3-VL-Embedding-8B", gpus: Optional[List[int]] = None):
+        from transformers import AutoModel, AutoProcessor, BitsAndBytesConfig
+        
+        # Check for local model first
+        resolved_path = _resolve_local_model_path(model_name)
+        
+        print(f"Loading Qwen3-VL: {resolved_path}")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        self.device = get_device_map_for_gpus(gpus) if gpus else ("cuda" if torch.cuda.is_available() else "cpu")
+        self.gpus = gpus
+        
+        # NOTE: Qwen3-VL-Embedding-8B has issues with bitsandbytes 4-bit quantization
+        # ('weight' is not an nn.Module error). Load without quantization for now.
+        # If OOM occurs, try the 2B variant or use 8-bit quantization instead.
+        use_quantization = False  # Disabled due to bitsandbytes compatibility issue
+        
+        if use_quantization and self.device.startswith("cuda"):
+            quantization_config = BitsAndBytesConfig(
+                load_in_8bit=True,  # Use 8-bit instead of 4-bit for better compatibility
+            )
+        else:
+            quantization_config = None
+        
+        self.model = AutoModel.from_pretrained(
+            resolved_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto" if self.device.startswith("cuda") else None,
+            quantization_config=quantization_config,
+            trust_remote_code=True,
+        ).eval()
+        
+        self.processor = AutoProcessor.from_pretrained(resolved_path, trust_remote_code=True)
+        self.embedding_dim = 4096  # Qwen3-VL embedding dimension
+        print(f"✅ Qwen3-VL loaded on {self.device}")
+    
+    def embed_text(self, text: str) -> torch.Tensor:
+        inputs = self.processor(text=text, return_tensors="pt").to(self.device)
+        with torch.no_grad():
+            outputs = self.model(**inputs, output_hidden_states=True)
+            if hasattr(outputs, 'hidden_states') and outputs.hidden_states:
+                embedding = outputs.hidden_states[-1].mean(dim=1).squeeze()
+            elif hasattr(outputs, 'last_hidden_state'):
+                embedding = outputs.last_hidden_state.mean(dim=1).squeeze()
+            else:
+                embedding = outputs[0].mean(dim=1).squeeze()
+        return embedding.float().flatten()
+    
+    def embed_image(self, image_path: str) -> torch.Tensor:
+        if not Path(image_path).exists():
+            return torch.zeros(self.embedding_dim, device=self.device, dtype=torch.float32)
+        
+        image = Image.open(image_path).convert('RGB')
+        inputs = self.processor(images=image, return_tensors="pt").to(self.device)
+        with torch.no_grad():
+            outputs = self.model(**inputs, output_hidden_states=True)
+            if hasattr(outputs, 'hidden_states') and outputs.hidden_states:
+                embedding = outputs.hidden_states[-1].mean(dim=1).squeeze()
+            elif hasattr(outputs, 'last_hidden_state'):
+                embedding = outputs.last_hidden_state.mean(dim=1).squeeze()
+            else:
+                embedding = outputs[0].mean(dim=1).squeeze()
+        return embedding.float().flatten()
+    
+    def embed_multimodal(self, text: str, image_path: Optional[str] = None) -> torch.Tensor:
+        if image_path and Path(image_path).exists():
+            image = Image.open(image_path).convert('RGB')
+            inputs = self.processor(text=text, images=image, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                outputs = self.model(**inputs, output_hidden_states=True)
+                if hasattr(outputs, 'hidden_states') and outputs.hidden_states:
+                    embedding = outputs.hidden_states[-1].mean(dim=1).squeeze()
+                elif hasattr(outputs, 'last_hidden_state'):
+                    embedding = outputs.last_hidden_state.mean(dim=1).squeeze()
+                else:
+                    embedding = outputs[0].mean(dim=1).squeeze()
+            return embedding.float().flatten()
+        return self.embed_text(text)
+
+
+def get_multimodal_embedder(gpus: Optional[List[int]] = None):
+    """
+    Try to load multimodal embedding models in order of preference:
+    1. Qwen3-VL (best for documents with tables/images)
+    2. Nomic multimodal
+    3. Fall back to bge-m3 (text-only) with warning
+    
+    Returns:
+        Tuple of (embedder, model_name, is_multimodal)
+    """
+    # Try Qwen3-VL first
+    try:
+        print("🔍 Trying to load Qwen3-VL multimodal embeddings...")
+        embedder = Qwen3VLEmbed(gpus=gpus)
+        return embedder, "qwen3_vl", True
+    except Exception as e:
+        print(f"⚠️  Qwen3-VL not available: {e}")
+    
+    # Try Nomic multimodal
+    try:
+        print("🔍 Trying to load Nomic multimodal embeddings...")
+        embedder = NomicVLEmbed(gpus=gpus)
+        return embedder, "nomic", True
+    except Exception as e:
+        print(f"⚠️  Nomic multimodal not available: {e}")
+    
+    # Fall back to bge-m3 (text-only)
+    print("=" * 70)
+    print("⚠️  MULTIMODAL EMBEDDING MODELS NOT AVAILABLE")
+    print("   Falling back to bge-m3 (text-only embeddings)")
+    print("   Tables and images will be embedded using text descriptions only")
+    print("=" * 70)
+    
+    from sentence_transformers import SentenceTransformer
+    embedder = SentenceTransformer(get_best_embedding_model())
+    return embedder, "bge_m3", False
+
 
 class VLMDescriptionEmbed(BaseMultimodalEmbedder):
     """

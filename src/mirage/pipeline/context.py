@@ -22,6 +22,39 @@ from pathlib import Path
 from mirage.core.llm import call_vlm_interweaved, setup_logging, batch_call_vlm_interweaved
 from mirage.embeddings.models import NomicVLEmbed as NomicEmbedder
 from mirage.embeddings.rerankers_multimodal import MonoVLMReranker, VLMReranker, TextEmbeddingReranker
+from sentence_transformers import SentenceTransformer
+import threading
+
+# Thread-safe lock for embedder initialization
+_embedder_init_lock = threading.Lock()
+
+
+def _get_embedder_for_model(model_name: str):
+    """Get the correct embedder based on model name (thread-safe with caching)."""
+    import sys
+    this_module = sys.modules[__name__]
+    
+    # Thread-safe check and initialization
+    with _embedder_init_lock:
+        # Check cache first (inside lock to prevent race condition)
+        if hasattr(this_module, '_cached_query_embedder') and this_module._cached_query_embedder is not None:
+            return this_module._cached_query_embedder
+        
+        # Load the embedder (only one thread will do this)
+        if model_name.lower() in ('bge_m3', 'bge-m3', 'baai/bge-m3'):
+            print(f"Loading BGE-M3 embedder for query (thread-safe)...")
+            embedder = SentenceTransformer('BAAI/bge-m3')
+        elif model_name.lower() in ('nomic', 'nomic_embed', 'nomic-ai/nomic-embed-multimodal-7b'):
+            print(f"Loading Nomic embedder for query...")
+            embedder = NomicEmbedder()
+        else:
+            # Default to BGE-M3 for unknown models
+            print(f"Unknown model {model_name}, defaulting to BGE-M3 embedder...")
+            embedder = SentenceTransformer('BAAI/bge-m3')
+        
+        # Cache it for future calls
+        this_module._cached_query_embedder = embedder
+        return embedder
 from mirage.core.prompts import PROMPTS_CHUNK
 
 # ============================================================================
@@ -31,7 +64,7 @@ from mirage.core.prompts import PROMPTS_CHUNK
 # Multi-hop context completion parameters
 # SAFETY: Sensible limits to prevent runaway API calls
 # Each iteration can generate breadth × chunks_per_search API calls
-MAX_DEPTH = 10  # Maximum 10 iterations per chunk (was 20)
+MAX_DEPTH = 5  # Maximum 5 iterations per chunk
 MAX_BREADTH = 5  # Maximum 5 search strings per verification (was 20)
 CHUNKS_PER_SEARCH = 2  # Number of chunks to retrieve per search string
 # Chunk addition mode: "EXPLANATORY" (only direct answers) or "RELATED" (includes related chunks)
@@ -48,9 +81,10 @@ RERANK_TOP_K = 10           # Number of chunks to rerank (increased proportional
 CONTEXT_SIZE = 2            # Number of chunks to use as final context
 
 # Paths (configured via main.py or config.yaml)
-EMBEDDINGS_DIR = "output/results/embeddings"
-CHUNKS_FILE = "output/results/chunks.json"
-IMAGE_BASE_DIR = "output/results/markdown"
+# These defaults should match the pipeline's output directory structure
+EMBEDDINGS_DIR = "output/embeddings"
+CHUNKS_FILE = "output/chunks.json"
+IMAGE_BASE_DIR = "output/markdown"
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -163,12 +197,8 @@ def retrieve_and_rerank(query: str, model_name: str = None,
         print(f"Loaded {len(chunks)} chunks")
         print(f"✅ Using cached embeddings index in memory (fast retrieval)")
         
-        # Use cached embedder
-        if hasattr(this_module, '_cached_embedder') and this_module._cached_embedder is not None:
-            embedder = this_module._cached_embedder
-        else:
-            print(f"Loading {model_name} embedder...")
-            embedder = NomicEmbedder()
+        # Use thread-safe cached embedder (caching is now inside _get_embedder_for_model)
+        embedder = _get_embedder_for_model(model_name)
         
         # Embed query only (chunk embeddings already cached)
         # Use GPU lock if available for thread-safe access
@@ -196,7 +226,22 @@ def retrieve_and_rerank(query: str, model_name: str = None,
         # Load FAISS index from disk
         index_path = f"{EMBEDDINGS_DIR}/{model_name}_index.faiss"
         print(f"Loading FAISS index from {index_path}...")
-        index = faiss.read_index(index_path)
+        cpu_index = faiss.read_index(index_path)
+        
+        # Try to use GPU if available
+        try:
+            from mirage.core.config import get_faiss_config
+            _faiss_cfg = get_faiss_config()
+            if _faiss_cfg.get('use_gpu', False):
+                res = faiss.StandardGpuResources()
+                gpu_id = _faiss_cfg.get('gpu_id', 0)
+                index = faiss.index_cpu_to_gpu(res, gpu_id, cpu_index)
+                print(f"✅ FAISS index transferred to GPU {gpu_id}")
+            else:
+                index = cpu_index
+        except Exception as e:
+            print(f"⚠️ Could not use FAISS GPU: {e}")
+            index = cpu_index
         
         # Load metadata
         metadata_path = f"{EMBEDDINGS_DIR}/{model_name}_metadata.json"
@@ -204,12 +249,8 @@ def retrieve_and_rerank(query: str, model_name: str = None,
             metadata = json.load(f)
         chunk_ids = metadata['chunk_ids']
         
-        # Use cached embedder if available, otherwise load new one
-        if hasattr(this_module, '_cached_embedder') and this_module._cached_embedder is not None:
-            embedder = this_module._cached_embedder
-        else:
-            print(f"Loading {model_name} embedder...")
-            embedder = NomicEmbedder()
+        # Use thread-safe cached embedder (caching is now inside _get_embedder_for_model)
+        embedder = _get_embedder_for_model(model_name)
         
         # Embed query with GPU lock for thread-safe access
         # Use convert_to_numpy=True to avoid device mismatch when model is on CPU
@@ -255,8 +296,10 @@ def retrieve_and_rerank(query: str, model_name: str = None,
     # Get retrieved chunks
     retrieved_chunks = []
     for idx, score in zip(indices[0], scores[0]):
-        chunk_id = chunk_ids[idx]
-        chunk = chunks[int(chunk_id) - 1]  # chunk_id is 1-indexed
+        # idx is the FAISS index which corresponds directly to the position in chunks list
+        # chunk_id is document-local and may repeat across documents, so use idx directly
+        chunk = chunks[idx]
+        chunk_id = chunk_ids[idx]  # For reference/logging only
         
         # Extract file_name (source document) if available
         file_name = chunk.get('file_name', 'unknown')
@@ -322,39 +365,57 @@ def retrieve_and_rerank(query: str, model_name: str = None,
 def parse_verification_response(response: str) -> Tuple[str, Optional[List[str]], str]:
     """Parse the LLM verification response
     
+    New format: <|#|>START<|#|>Status<|#|><status><|#|>Query<|#|><queries><|#|>Explanation<|#|><text><|#|>Concepts<|#|><concepts><|#|>END<|#|>
+    
     Returns:
         (status, search_strings, explanation)
         status: "COMPLETE" or "INCOMPLETE"
         search_strings: List of search strings if incomplete, None if complete
         explanation: Explanation text
     """
-    # Extract status
-    status_match = re.search(r'Status:\s*(COMPLETE|INCOMPLETE)', response, re.IGNORECASE)
-    if not status_match:
-        raise ValueError(f"Could not parse status from response: {response}")
+    # Try new delimiter-based format first
+    tuple_delimiter = "<|#|>"
     
-    status = status_match.group(1).upper()
-    
-    # Extract explanation first (needed for fallback)
-    explanation_match = re.search(r'Explanation:\s*(.+?)(?:\n\n|$)', response, re.DOTALL)
-    explanation = explanation_match.group(1).strip() if explanation_match else ""
-    
-    # Extract search strings (if incomplete)
+    status = None
     search_strings = None
-    if status == "INCOMPLETE":
+    explanation = ""
+    
+    if tuple_delimiter in response:
+        parts = response.split(tuple_delimiter)
+        for i, part in enumerate(parts):
+            part_lower = part.strip().lower()
+            if part_lower == "status" and i + 1 < len(parts):
+                status = parts[i + 1].strip().upper()
+            elif part_lower == "query" and i + 1 < len(parts):
+                query_text = parts[i + 1].strip()
+                if query_text.lower() != "none" and query_text:
+                    search_strings = [s.strip().strip('"') for s in query_text.split('|') if s.strip()]
+            elif part_lower == "explanation" and i + 1 < len(parts):
+                explanation = parts[i + 1].strip()
+    
+    # Fallback: try old format
+    if not status:
+        status_match = re.search(r'Status:\s*(COMPLETE|INCOMPLETE)', response, re.IGNORECASE)
+        if not status_match:
+            raise ValueError(f"Could not parse status from response: {response}")
+        status = status_match.group(1).upper()
+    
+    if not explanation:
+        explanation_match = re.search(r'Explanation:\s*(.+?)(?:\n\n|$)', response, re.DOTALL)
+        explanation = explanation_match.group(1).strip() if explanation_match else ""
+    
+    # Extract search strings (if incomplete) - fallback for old format
+    if status == "INCOMPLETE" and not search_strings:
         query_match = re.search(r'Query:\s*([^,]+?)(?:,\s*Explanation:|$)', response, re.DOTALL)
         if query_match:
             query_text = query_match.group(1).strip()
-            # Split by pipe character
             search_strings = [s.strip() for s in query_text.split('|') if s.strip()]
         
         # Fallback: generate search query from explanation if Query was missing
         if not search_strings and explanation:
-            # Extract Figure/Table/Annex references from explanation
             refs = re.findall(r'(Figure|Table|Annex|Formula)\s*[A-Z]?\.?\d+(?:\.\d+)?', explanation, re.IGNORECASE)
             if refs:
-                # Create search queries from references
-                search_strings = [ref for ref in refs[:5]]  # Limit to 5
+                search_strings = [ref for ref in refs[:5]]
                 print(f"    ⚠️ Fallback: Generated search strings from explanation: {search_strings}")
     
     return status, search_strings, explanation
@@ -383,29 +444,51 @@ def verify_chunk_completeness(chunks: List[Dict], expert_persona: str,
 def parse_addition_verification_response(response: str) -> Tuple[str, str]:
     """Parse the chunk addition verification response
     
+    New format: <|#|>START<|#|>Status<|#|><status><|#|>Explanation<|#|><text><|#|>END<|#|>
+    
     Returns:
         (status, explanation)
         status: "EXPLANATORY", "RELATED", or "UNRELATED"
         explanation: Explanation text
     """
-    # Extract status - try new format first, then fall back to old format for compatibility
-    status_match = re.search(r'Status:\s*(EXPLANATORY|RELATED|UNRELATED)', response, re.IGNORECASE)
-    if not status_match:
-        # Fallback: check for old HELPFUL/NOT_HELPFUL format
-        old_status_match = re.search(r'Status:\s*(HELPFUL|NOT_HELPFUL)', response, re.IGNORECASE)
-        if old_status_match:
-            old_status = old_status_match.group(1).upper()
-            # Map old format to new format
-            status = "EXPLANATORY" if old_status == "HELPFUL" else "UNRELATED"
-        else:
-            # Default to UNRELATED if parsing fails
-            return "UNRELATED", f"Could not parse response: {response[:200]}"
-    else:
-        status = status_match.group(1).upper()
+    tuple_delimiter = "<|#|>"
+    status = None
+    explanation = ""
     
-    # Extract explanation
-    explanation_match = re.search(r'Explanation:\s*(.+?)(?:\n\n|$)', response, re.DOTALL)
-    explanation = explanation_match.group(1).strip() if explanation_match else ""
+    # Try new delimiter-based format first
+    if tuple_delimiter in response:
+        parts = response.split(tuple_delimiter)
+        for i, part in enumerate(parts):
+            part_lower = part.strip().lower()
+            if part_lower == "status" and i + 1 < len(parts):
+                status_value = parts[i + 1].strip().upper()
+                # Map to valid statuses
+                if status_value in ["EXPLANATORY", "RELATED", "UNRELATED"]:
+                    status = status_value
+                elif status_value == "HELPFUL":
+                    status = "EXPLANATORY"  # Legacy mapping
+                elif status_value == "NOT_HELPFUL":
+                    status = "UNRELATED"  # Legacy mapping
+            elif part_lower == "explanation" and i + 1 < len(parts):
+                explanation = parts[i + 1].strip()
+    
+    # Fallback: try old format
+    if not status:
+        status_match = re.search(r'Status:\s*(EXPLANATORY|RELATED|UNRELATED)', response, re.IGNORECASE)
+        if status_match:
+            status = status_match.group(1).upper()
+        else:
+            # Fallback: check for old HELPFUL/NOT_HELPFUL format
+            old_status_match = re.search(r'Status:\s*(HELPFUL|NOT_HELPFUL)', response, re.IGNORECASE)
+            if old_status_match:
+                old_status = old_status_match.group(1).upper()
+                status = "EXPLANATORY" if old_status == "HELPFUL" else "UNRELATED"
+            else:
+                return "UNRELATED", f"Could not parse response: {response[:200]}"
+    
+    if not explanation:
+        explanation_match = re.search(r'Explanation:\s*(.+?)(?:\n\n|$)', response, re.DOTALL)
+        explanation = explanation_match.group(1).strip() if explanation_match else ""
     
     return status, explanation
 
@@ -778,7 +861,9 @@ def build_complete_context(
                         print(f"    ⊘ Chunk {file_name}:{chunk_id} already added")
             
             except Exception as e:
-                print(f"    ⚠️ Error retrieving chunks: {e}")
+                import traceback
+                print(f"    ⚠️ Error retrieving chunks: {type(e).__name__}: {e}")
+                traceback.print_exc()
         
         # Phase 2: Batch verify all candidates
         if candidates_to_verify:

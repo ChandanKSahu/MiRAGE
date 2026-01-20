@@ -70,6 +70,13 @@ def _initialize_config():
         VLM_MODEL_NAME = _backend_cfg.get('vlm_model', _DEFAULT_MODELS.get(BACKEND, ('', ''))[1])
         API_KEY = get_api_key()
         
+        # Fallback to environment variables if API key not in config
+        if not API_KEY:
+            if BACKEND == "GEMINI":
+                API_KEY = os.environ.get("GEMINI_API_KEY", "")
+            elif BACKEND == "OPENAI":
+                API_KEY = os.environ.get("OPENAI_API_KEY", "")
+        
         # Rate limiting from config
         GEMINI_RPM = _rate_cfg.get('requests_per_minute', 60)
         GEMINI_BURST = _rate_cfg.get('burst_size', 15)
@@ -99,6 +106,10 @@ def _initialize_config():
         HEADERS = {"Content-Type": "application/json"}
     else:
         HEADERS = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    
+    # Warn if API key is missing for backends that require it
+    if not API_KEY and BACKEND in ("GEMINI", "OPENAI"):
+        print(f"⚠️ Warning: No API key found for {BACKEND}. Set {BACKEND}_API_KEY environment variable or configure api_key_path in config.yaml")
     
     _config_initialized = True
 
@@ -210,12 +221,13 @@ def test_vlm_connection(test_image: str = None) -> bool:
         print(f"❌ VLM API connection error: {e}")
         return False
 
-def call_llm_simple(prompt: str, max_retries: int = 5) -> str:
+def call_llm_simple(prompt: str, max_retries: int = 5, use_cache: bool = True) -> str:
     """Simple LLM call with text-only input. Supports OLLAMA, GEMINI, OPENAI.
     
     Args:
         prompt: Text prompt to send to the LLM
         max_retries: Maximum number of retry attempts (default: 5)
+        use_cache: Whether to use LLM response cache (default: True)
     
     Returns:
         LLM response text
@@ -224,6 +236,20 @@ def call_llm_simple(prompt: str, max_retries: int = 5) -> str:
         Exception: If all retry attempts fail
     """
     _initialize_config()
+    
+    # Check cache first
+    if use_cache:
+        try:
+            from mirage.utils.llm_cache import get_llm_cache
+            cache = get_llm_cache()
+            if cache:
+                cached = cache.get('llm_simple', prompt, model=LLM_MODEL_NAME)
+                if cached is not None:
+                    print(f"📦 Cache hit for LLM call ({len(cached)} chars)")
+                    return cached
+        except ImportError:
+            pass
+    
     print(f"Calling LLM (text-only) via {BACKEND}...")
     attempt = 0
     wait_time = 2
@@ -293,6 +319,17 @@ def call_llm_simple(prompt: str, max_retries: int = 5) -> str:
             logging.info(f"LLM Response (Complete) - {len(result)} chars")
             logging.info(f"LLM Response Content: {result}")
             logging.info("-" * 60)
+            
+            # Cache the response
+            if use_cache:
+                try:
+                    from mirage.utils.llm_cache import get_llm_cache
+                    cache = get_llm_cache()
+                    if cache:
+                        cache.set('llm_simple', prompt, result, model=LLM_MODEL_NAME)
+                except ImportError:
+                    pass
+            
             return result
                 
         except Exception as e:
@@ -663,7 +700,7 @@ def call_vlm_multi_images_ollama(prompt: str, image_paths: List[str]) -> str:
             print(f"Response: {response.text}")
         return ""
 
-def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
+def call_vlm_interweaved(prompt: str, chunks: List[Dict], use_cache: bool = True) -> str:
     """VLM call with interleaved text and images from chunks.
     Supports OLLAMA, GEMINI, OPENAI.
     
@@ -672,8 +709,23 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
         chunks: List of dicts - supports two formats:
                1. Old format: {'content': str, 'image_path': str|None}
                2. JSON format: {'chunk_type': str, 'content': str, 'artifact': str}
+        use_cache: Whether to use LLM response cache (default: True)
     """
     _initialize_config()
+    
+    # Check cache first
+    if use_cache:
+        try:
+            from mirage.utils.llm_cache import get_llm_cache
+            cache = get_llm_cache()
+            if cache:
+                cached = cache.get('vlm_interweaved', prompt, chunks, model=VLM_MODEL_NAME)
+                if cached is not None:
+                    print(f"📦 Cache hit for VLM call ({len(cached)} chars)")
+                    return cached
+        except ImportError:
+            pass
+    
     print(f"Calling VLM with {len(chunks)} chunks (interweaved) via {BACKEND}...")
     attempt = 0
     wait_time = 2
@@ -832,6 +884,17 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict]) -> str:
             logging.info(f"VLM Response - {len(chunks)} chunks")
             logging.info(f"VLM Response Content: {result}")
             logging.info("-" * 60)
+            
+            # Cache the response
+            if use_cache:
+                try:
+                    from mirage.utils.llm_cache import get_llm_cache
+                    cache = get_llm_cache()
+                    if cache:
+                        cache.set('vlm_interweaved', prompt, result, chunks, model=VLM_MODEL_NAME)
+                except ImportError:
+                    pass
+            
             return result
                 
         except Exception as e:
@@ -1535,57 +1598,142 @@ def _run_async_batch(coro):
         raise
 
 
-def batch_call_llm(prompts: List[str], show_progress: bool = True) -> List[str]:
-    """Synchronous wrapper for batch LLM calls with rate limiting
+def batch_call_llm(prompts: List[str], show_progress: bool = True,
+                   use_cache: bool = True) -> List[str]:
+    """Synchronous wrapper for batch LLM calls with rate limiting and caching
     
     Args:
         prompts: List of prompts to process concurrently
         show_progress: Whether to print progress
+        use_cache: Whether to use LLM response cache (default: True)
         
     Returns:
         List of responses in same order as prompts
     """
+    _initialize_config()
     if not prompts:
         return []
     
+    # Check cache for existing responses
+    cache = None
+    cached_responses = [None] * len(prompts)
+    miss_indices = list(range(len(prompts)))
+    
+    if use_cache:
+        try:
+            from mirage.utils.llm_cache import get_llm_cache
+            cache = get_llm_cache()
+            if cache:
+                # Convert prompts to (prompt, None) format for get_batch
+                requests = [(p, None) for p in prompts]
+                cached_responses, miss_indices = cache.get_batch(
+                    'llm_simple', requests, model=LLM_MODEL_NAME
+                )
+                if len(miss_indices) < len(prompts):
+                    cache_hits = len(prompts) - len(miss_indices)
+                    if show_progress:
+                        print(f"📦 Cache: {cache_hits}/{len(prompts)} hits, {len(miss_indices)} API calls needed")
+        except ImportError:
+            pass
+    
+    # If all cached, return immediately
+    if not miss_indices:
+        if show_progress:
+            print(f"📦 All {len(prompts)} responses found in cache!")
+        return cached_responses
+    
+    # Only process uncached requests
+    uncached_prompts = [prompts[i] for i in miss_indices]
+    
     if show_progress:
-        print(f"⚡ Batch LLM: Processing {len(prompts)} requests (RPM={GEMINI_RPM}, burst={GEMINI_BURST})...")
+        print(f"⚡ Batch LLM: Processing {len(uncached_prompts)} requests (RPM={GEMINI_RPM}, burst={GEMINI_BURST})...")
     
     start_time = time.time()
-    results = _run_async_batch(_batch_llm_calls_async(prompts))
+    uncached_results = _run_async_batch(_batch_llm_calls_async(uncached_prompts))
     elapsed = time.time() - start_time
     
     if show_progress:
-        print(f"✅ Batch LLM: Completed {len(prompts)} requests in {elapsed:.1f}s "
-              f"({len(prompts)/elapsed:.1f} req/s)")
+        print(f"✅ Batch LLM: Completed {len(uncached_prompts)} requests in {elapsed:.1f}s "
+              f"({len(uncached_prompts)/max(0.1, elapsed):.1f} req/s)")
+    
+    # Cache new results and merge with cached
+    results = cached_responses.copy()
+    for i, idx in enumerate(miss_indices):
+        results[idx] = uncached_results[i] if i < len(uncached_results) else ""
+    
+    # Save new results to cache
+    if cache and use_cache:
+        requests = [(prompts[i], None) for i in miss_indices]
+        cache.set_batch('llm_simple', requests, uncached_results, list(range(len(miss_indices))), model=LLM_MODEL_NAME)
     
     return results
 
 
 def batch_call_vlm_interweaved(requests: List[Tuple[str, List[Dict]]], 
-                                show_progress: bool = True) -> List[str]:
-    """Synchronous wrapper for batch VLM calls with rate limiting
+                                show_progress: bool = True,
+                                use_cache: bool = True) -> List[str]:
+    """Synchronous wrapper for batch VLM calls with rate limiting and caching
     
     Args:
         requests: List of (prompt, chunks) tuples
         show_progress: Whether to print progress
+        use_cache: Whether to use LLM response cache (default: True)
         
     Returns:
         List of responses in same order as requests
     """
+    _initialize_config()
     if not requests:
         return []
     
+    # Check cache for existing responses
+    cache = None
+    cached_responses = [None] * len(requests)
+    miss_indices = list(range(len(requests)))
+    
+    if use_cache:
+        try:
+            from mirage.utils.llm_cache import get_llm_cache
+            cache = get_llm_cache()
+            if cache:
+                cached_responses, miss_indices = cache.get_batch(
+                    'vlm_interweaved', requests, model=VLM_MODEL_NAME
+                )
+                if len(miss_indices) < len(requests):
+                    cache_hits = len(requests) - len(miss_indices)
+                    if show_progress:
+                        print(f"📦 Cache: {cache_hits}/{len(requests)} hits, {len(miss_indices)} API calls needed")
+        except ImportError:
+            pass
+    
+    # If all cached, return immediately
+    if not miss_indices:
+        if show_progress:
+            print(f"📦 All {len(requests)} responses found in cache!")
+        return cached_responses
+    
+    # Only process uncached requests
+    uncached_requests = [requests[i] for i in miss_indices]
+    
     if show_progress:
-        print(f"⚡ Batch VLM: Processing {len(requests)} requests (RPM={GEMINI_RPM}, burst={GEMINI_BURST})...")
+        print(f"⚡ Batch VLM: Processing {len(uncached_requests)} requests (RPM={GEMINI_RPM}, burst={GEMINI_BURST})...")
     
     start_time = time.time()
-    results = _run_async_batch(_batch_vlm_calls_async(requests))
+    uncached_results = _run_async_batch(_batch_vlm_calls_async(uncached_requests))
     elapsed = time.time() - start_time
     
     if show_progress:
-        print(f"✅ Batch VLM: Completed {len(requests)} requests in {elapsed:.1f}s "
-              f"({len(requests)/elapsed:.1f} req/s)")
+        print(f"✅ Batch VLM: Completed {len(uncached_requests)} requests in {elapsed:.1f}s "
+              f"({len(uncached_requests)/max(0.1, elapsed):.1f} req/s)")
+    
+    # Cache new results and merge with cached
+    results = cached_responses.copy()
+    for i, idx in enumerate(miss_indices):
+        results[idx] = uncached_results[i] if i < len(uncached_results) else ""
+    
+    # Save new results to cache
+    if cache and use_cache:
+        cache.set_batch('vlm_interweaved', requests, uncached_results, miss_indices, model=VLM_MODEL_NAME)
     
     return results
 
@@ -1739,6 +1887,7 @@ def batch_call_vlm_base64(requests: List[Tuple[str, str, str]],
         ]
         responses = batch_call_vlm_base64(requests)
     """
+    _initialize_config()
     if not requests:
         return []
     

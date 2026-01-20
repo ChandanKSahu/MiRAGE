@@ -34,11 +34,6 @@ def parse_args():
         help="Run preflight checks only"
     )
     parser.add_argument(
-        "--skip-preflight",
-        action="store_true",
-        help="Skip preflight checks"
-    )
-    parser.add_argument(
         "--input", "-i",
         type=str,
         help="Input directory with documents (overrides config)"
@@ -85,19 +80,13 @@ def main():
     logger.info(f"LLM Model: {LLM_MODEL_NAME}")
     logger.info(f"VLM Model: {VLM_MODEL_NAME}")
     
-    # Run preflight checks only
+    # Run preflight checks only mode
     if args.preflight:
         logger.info("\nRunning preflight checks...")
-        success = run_preflight_checks()
-        sys.exit(0 if success else 1)
+        all_passed, _ = run_preflight_checks()
+        sys.exit(0 if all_passed else 1)
     
-    # Run preflight checks before pipeline
-    if not args.skip_preflight:
-        logger.info("\nRunning preflight checks...")
-        if not run_preflight_checks():
-            logger.error("Preflight checks failed. Fix issues above or use --skip-preflight to bypass.")
-            sys.exit(1)
-        logger.info("Preflight checks passed!\n")
+    # Note: Preflight checks run automatically in run_pipeline() and cannot be skipped
     
     # Load configuration
     try:

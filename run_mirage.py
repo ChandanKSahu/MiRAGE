@@ -119,11 +119,6 @@ Environment Variables:
         help="Run preflight checks only"
     )
     parser.add_argument(
-        "--skip-preflight",
-        action="store_true",
-        help="Skip preflight checks"
-    )
-    parser.add_argument(
         "--skip-pdf-processing",
         action="store_true",
         help="Skip PDF to Markdown conversion (use existing markdown)"
@@ -261,15 +256,6 @@ def main():
     logger.info(f"Target QA pairs: {args.num_qa_pairs}")
     logger.info(f"Workers: {args.max_workers}")
     
-    # Run preflight checks
-    if not args.skip_preflight:
-        logger.info("\nRunning preflight checks...")
-        all_passed, results = run_preflight_checks(skip_expensive=False, quiet=False)
-        if not all_passed:
-            logger.error("Preflight checks failed. Fix issues above or use --skip-preflight.")
-            sys.exit(1)
-        logger.info("Preflight checks passed!\n")
-    
     # Create output directory
     os.makedirs(args.output, exist_ok=True)
     
@@ -287,9 +273,9 @@ def main():
         json.dump(config, f, indent=2)
     logger.info(f"Configuration saved to: {config_path}")
     
-    # Run the full pipeline
+    # Run the full pipeline (preflight checks are mandatory and run first)
     logger.info("\nStarting MiRAGE pipeline...")
-    run_pipeline(skip_preflight=True)  # Already did preflight above
+    run_pipeline()  # Preflight runs automatically, completed steps are skipped
     
     logger.info("\nPipeline completed!")
 

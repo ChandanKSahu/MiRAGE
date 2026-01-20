@@ -165,6 +165,8 @@ def parse_reorganized_packs(response_text: str, base_metadata: Dict) -> List[Dic
     """
     Parse the LLM response containing reorganized QA packs.
     
+    New format: <|#|>START<|#|>Question<|#|><text><|#|>Answer<|#|><text><|#|>NEXT<|#|>...<|#|>END<|#|>
+    
     Returns:
         List of reorganized QA dicts
     """
@@ -192,26 +194,27 @@ def parse_reorganized_packs(response_text: str, base_metadata: Dict) -> List[Dic
             if not pack_text:
                 continue
             
-            # Parse Question and Answer from the pack
-            # Expected format: Question<|#|><questions><|#|>Answer<|#|><answer>
-            if "Question" + tuple_delimiter in pack_text:
-                parts = pack_text.split(tuple_delimiter)
-                
-                question = None
-                answer = None
-                
-                for i, part in enumerate(parts):
-                    if part.lower() == "question" and i + 1 < len(parts):
-                        question = parts[i + 1].strip()
-                    elif part.lower() == "answer" and i + 1 < len(parts):
-                        answer = parts[i + 1].strip()
-                
-                if question and answer:
-                    new_item = base_metadata.copy()
-                    new_item["question"] = question
-                    new_item["answer"] = answer
-                    new_item["reorganized"] = True
-                    qa_packs.append(new_item)
+            # Parse Question and Answer from the pack using delimiter format
+            parts = pack_text.split(tuple_delimiter)
+            
+            question = None
+            answer = None
+            
+            for i, part in enumerate(parts):
+                part_lower = part.strip().lower()
+                if i + 1 < len(parts):
+                    value = parts[i + 1].strip()
+                    if part_lower == "question":
+                        question = value
+                    elif part_lower == "answer":
+                        answer = value
+            
+            if question and answer:
+                new_item = base_metadata.copy()
+                new_item["question"] = question
+                new_item["answer"] = answer
+                new_item["reorganized"] = True
+                qa_packs.append(new_item)
         
         return qa_packs
         

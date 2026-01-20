@@ -61,6 +61,18 @@ CUDA_DEVICE_ID = PDF_CONFIG.get("cuda_device_id", 1)
 API_KEY_FILE = os.environ.get("GEMINI_API_KEY_PATH", os.path.expanduser("~/.config/gemini/api_key.txt"))
 API_URL = os.environ.get("LLM_API_URL", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")
 
+def get_api_key():
+    """Get API key from environment variable or file."""
+    # First check environment variable (set by run_mirage.py --api-key)
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if api_key:
+        return api_key
+    # Fall back to file
+    if os.path.exists(API_KEY_FILE):
+        with open(API_KEY_FILE, 'r') as f:
+            return f.read().strip()
+    raise FileNotFoundError(f"API key not found. Set GEMINI_API_KEY env var or create {API_KEY_FILE}")
+
 from mirage.core.prompts import PROMPTS_DESC
 
 logging.basicConfig(level=logging.INFO)
@@ -136,9 +148,8 @@ def collect_pdf_files(input_path):
 
 def motormaven_vlm_options():
     """Configure PictureDescriptionApiOptions for motormaven endpoint"""
-    # Load API key from file
-    with open(API_KEY_FILE, 'r') as f:
-        api_key = f.read().strip()
+    # Load API key from env var or file
+    api_key = get_api_key()
     
     options = PictureDescriptionApiOptions(
         url=API_URL,
@@ -343,8 +354,7 @@ def _annotate_items_batch(conv_res, model_name, pictures_to_skip):
 def _annotate_items_sequential(conv_res, model_name, api_url, pictures_to_skip):
     """Sequential annotation (original implementation, kept as fallback)."""
     # Load API key for authentication
-    with open(API_KEY_FILE, 'r') as f:
-        api_key = f.read().strip()
+    api_key = get_api_key()
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",

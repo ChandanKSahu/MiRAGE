@@ -38,7 +38,7 @@ import numpy as np
 
 # Imports
 try:
-    from mirage.core.llm import call_llm_simple as call_llm, batch_call_vlm_interweaved, call_vlm_interweaved, API_KEY
+    from mirage.core.llm import call_llm_simple as call_llm, batch_call_vlm_interweaved, call_vlm_interweaved, batch_call_llm, API_KEY
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
@@ -82,12 +82,12 @@ class LocalEmbeddingWrapper:
 
 # Import prompts from mirage.core.prompts
 try:
-    from mirage.core.prompts import PROMPTS_METRICS_OPT
+    from mirage.core.prompts import PROMPTS_METRICS
     PROMPTS_AVAILABLE = True
 except ImportError:
     PROMPTS_AVAILABLE = False
-    PROMPTS_METRICS_OPT = {}
-    print("Warning: PROMPTS_METRICS_OPT not available from mirage.core.prompts")
+    PROMPTS_METRICS = {}
+    print("Warning: PROMPTS_METRICS not available from mirage.core.prompts")
 
 
 # ============================================================================
@@ -166,7 +166,7 @@ def has_image_in_chunk(chunk: Dict) -> bool:
 # ============================================================================
 
 # Use imported prompts or define fallbacks
-PROMPT_PREPARE_QA = PROMPTS_METRICS_OPT.get("prepare_qa", """You are a QA analysis assistant. Analyze the following QA pair and extract information needed for evaluation.
+PROMPT_PREPARE_QA = PROMPTS_METRICS.get("prepare_qa", """You are a QA analysis assistant. Analyze the following QA pair and extract information needed for evaluation.
 
 QUESTION: {question}
 
@@ -196,7 +196,7 @@ REVERSE_QUESTIONS:
 - [question 3]
 """)
 
-PROMPT_FAITHFULNESS = PROMPTS_METRICS_OPT.get("faithfulness", """You are a faithfulness evaluator. Determine if each claim from the answer can be inferred from the given context.
+PROMPT_FAITHFULNESS = PROMPTS_METRICS.get("faithfulness", """You are a faithfulness evaluator. Determine if each claim from the answer can be inferred from the given context.
 
 CONTEXT:
 {context}
@@ -212,7 +212,7 @@ CLAIM_2: SUPPORTED/NOT_SUPPORTED
 ...
 """)
 
-PROMPT_CONTEXT_RECALL = PROMPTS_METRICS_OPT.get("context_recall", """You are a context recall evaluator. Determine if each claim from the reference/ground truth can be attributed to the retrieved context.
+PROMPT_CONTEXT_RECALL = PROMPTS_METRICS.get("context_recall", """You are a context recall evaluator. Determine if each claim from the reference/ground truth can be attributed to the retrieved context.
 
 CONTEXT:
 {context}
@@ -228,7 +228,7 @@ CLAIM_2: ATTRIBUTED/NOT_ATTRIBUTED
 ...
 """)
 
-PROMPT_CONTEXT_PRECISION = PROMPTS_METRICS_OPT.get("context_precision", """You are a context precision evaluator. For each context chunk, determine if it is RELEVANT or NOT_RELEVANT to answering the question, given the reference answer.
+PROMPT_CONTEXT_PRECISION = PROMPTS_METRICS.get("context_precision", """You are a context precision evaluator. For each context chunk, determine if it is RELEVANT or NOT_RELEVANT to answering the question, given the reference answer.
 
 QUESTION: {question}
 REFERENCE ANSWER: {reference}
@@ -244,7 +244,7 @@ CHUNK_2: RELEVANT/NOT_RELEVANT
 ...
 """)
 
-PROMPT_MULTIMODAL_FAITHFULNESS = PROMPTS_METRICS_OPT.get("multimodal_faithfulness", """You are a multimodal faithfulness evaluator. Verify if EACH claim from the answer can be inferred from the provided context (text AND/OR images).
+PROMPT_MULTIMODAL_FAITHFULNESS = PROMPTS_METRICS.get("multimodal_faithfulness", """You are a multimodal faithfulness evaluator. Verify if EACH claim from the answer can be inferred from the provided context (text AND/OR images).
 
 QUESTION: {question}
 
@@ -269,7 +269,7 @@ SUPPORTED_COUNT: [number]
 TOTAL_CLAIMS: [number]
 """)
 
-PROMPT_MULTIMODAL_RELEVANCE = PROMPTS_METRICS_OPT.get("multimodal_relevance", """You are a multimodal relevance evaluator. Generate {num_questions} questions that the given answer could plausibly be answering, then evaluate relevance.
+PROMPT_MULTIMODAL_RELEVANCE = PROMPTS_METRICS.get("multimodal_relevance", """You are a multimodal relevance evaluator. Generate {num_questions} questions that the given answer could plausibly be answering, then evaluate relevance.
 
 ANSWER: {answer}
 
@@ -291,7 +291,7 @@ USES_IMAGES: YES/NO/NA
 RELEVANCE_SCORE: [0.0-1.0]
 """)
 
-PROMPT_CONTEXT_NECESSITY_WITHOUT = PROMPTS_METRICS_OPT.get("context_necessity_without", """You are an expert assistant. Answer the following question using ONLY your general knowledge. Do NOT make up specific facts.
+PROMPT_CONTEXT_NECESSITY_WITHOUT = PROMPTS_METRICS.get("context_necessity_without", """You are an expert assistant. Answer the following question using ONLY your general knowledge. Do NOT make up specific facts.
 
 If you cannot answer confidently without additional context, respond with: CANNOT_ANSWER
 
@@ -299,7 +299,7 @@ QUESTION: {question}
 
 YOUR ANSWER:""")
 
-PROMPT_CONTEXT_NECESSITY_VERIFY = PROMPTS_METRICS_OPT.get("context_necessity_verify", """Compare the model's answer to the ground truth answer.
+PROMPT_CONTEXT_NECESSITY_VERIFY = PROMPTS_METRICS.get("context_necessity_verify", """Compare the model's answer to the ground truth answer.
 
 GROUND TRUTH: {ground_truth}
 
@@ -312,7 +312,7 @@ Respond with exactly one of:
 
 YOUR VERDICT:""")
 
-PROMPT_MULTIHOP_REASONING = PROMPTS_METRICS_OPT.get("multihop_reasoning", """Analyze if answering this question requires multi-hop reasoning (combining information from multiple sources).
+PROMPT_MULTIHOP_REASONING = PROMPTS_METRICS.get("multihop_reasoning", """Analyze if answering this question requires multi-hop reasoning (combining information from multiple sources).
 
 CONTEXTS:
 {contexts}
@@ -333,7 +333,7 @@ BRIDGE_ENTITY: [entity or None]
 EXPLANATION: [brief explanation]
 """)
 
-PROMPT_VISUAL_DEPENDENCY = PROMPTS_METRICS_OPT.get("visual_dependency", """You are given ONLY text context (no images). Determine if you can fully answer the question.
+PROMPT_VISUAL_DEPENDENCY = PROMPTS_METRICS.get("visual_dependency", """You are given ONLY text context (no images). Determine if you can fully answer the question.
 
 TEXT CONTEXT:
 {contexts}

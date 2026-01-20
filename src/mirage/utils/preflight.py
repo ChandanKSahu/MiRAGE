@@ -91,7 +91,9 @@ def check_config() -> CheckResult:
 def check_api_key() -> CheckResult:
     """Check if API key is available and non-empty."""
     try:
-        from mirage.core.llm import API_KEY, BACKEND
+        from mirage.core.llm import _initialize_config, BACKEND
+        _initialize_config()  # Ensure config is loaded first
+        from mirage.core.llm import API_KEY
         
         if API_KEY and len(API_KEY) > 10:
             # Mask the key for display
@@ -202,14 +204,28 @@ def check_embedding_model() -> CheckResult:
         
         test_text = "This is a test sentence for embedding."
         
-        if model_name in ["nomic", "nomic-ai/nomic-embed-multimodal-7b"]:
+        # Handle "auto" or "multimodal" - use fallback logic
+        if model_name in ["auto", "multimodal", "", None]:
+            from mirage.embeddings.models import get_multimodal_embedder
+            gpus = embed_config.get('gpus', None)
+            embedder, actual_model, is_multimodal = get_multimodal_embedder(gpus=gpus)
+            model_display = f"{actual_model} (multimodal={is_multimodal})"
+            # Use encode() which all embedders support
+            embedding = embedder.encode(test_text, convert_to_numpy=True)
+        elif model_name == "qwen3_vl":
+            from mirage.embeddings.models import Qwen3VLEmbed
+            gpus = embed_config.get('gpus', None)
+            embedder = Qwen3VLEmbed(gpus=gpus)
+            model_display = "Qwen3-VL Multimodal"
+            embedding = embedder.embed_text(test_text)
+            if hasattr(embedding, 'cpu'):
+                embedding = embedding.cpu().float().numpy()
+        elif model_name in ["nomic", "nomic-ai/nomic-embed-multimodal-7b"]:
             from mirage.embeddings.models import NomicVLEmbed
             gpus = embed_config.get('gpus', None)
             embedder = NomicVLEmbed(gpus=gpus)
             model_display = "Nomic Multimodal"
-            # NomicVLEmbed uses embed_text() not encode()
             embedding = embedder.embed_text(test_text)
-            # Convert tensor to numpy (must convert bfloat16 to float32 first)
             if hasattr(embedding, 'cpu'):
                 embedding = embedding.cpu().float().numpy()
         elif model_name in ["bge_m3", "BAAI/bge-m3"]:
@@ -221,7 +237,7 @@ def check_embedding_model() -> CheckResult:
             from sentence_transformers import SentenceTransformer
             embedder = SentenceTransformer(model_name, trust_remote_code=True)
             model_display = model_name
-        embedding = embedder.encode(test_text, convert_to_numpy=True)
+            embedding = embedder.encode(test_text, convert_to_numpy=True)
         
         if embedding is not None and len(embedding) > 0:
             dim = len(embedding) if hasattr(embedding, '__len__') else embedding.shape[-1]
@@ -310,7 +326,7 @@ def check_reranker() -> CheckResult:
 def check_metrics_embeddings() -> CheckResult:
     """Test metrics evaluation embeddings (for answer_relevancy and semantic_diversity)."""
     try:
-        from metrics_optimized import GEMINI_AVAILABLE, SENTENCE_TRANSFORMERS_AVAILABLE
+        from mirage.evaluation.metrics_optimized import GEMINI_AVAILABLE, SENTENCE_TRANSFORMERS_AVAILABLE
         
         # Check which embedding backend is available
         if GEMINI_AVAILABLE:
@@ -334,7 +350,7 @@ def check_metrics_embeddings() -> CheckResult:
                     pass  # Fall through to sentence-transformers
         
         if SENTENCE_TRANSFORMERS_AVAILABLE:
-            from metrics_optimized import LocalEmbeddingWrapper
+            from mirage.evaluation.metrics_optimized import LocalEmbeddingWrapper
             embeddings = LocalEmbeddingWrapper("BAAI/bge-m3")
             test_emb = embeddings.embed_query("test")
             return CheckResult(
@@ -440,6 +456,9 @@ def check_output_directory() -> CheckResult:
         )
 
 
+# Module-level override for input directory (set before running checks)
+_input_dir_override: Optional[str] = None
+
 @_timer
 def check_input_data() -> CheckResult:
     """Check if input data exists."""
@@ -447,7 +466,8 @@ def check_input_data() -> CheckResult:
         from mirage.core.config import get_paths_config
         paths = get_paths_config()
 
-        input_pdf_dir = paths.get('input_pdf_dir')
+        # Use override if set, otherwise use config
+        input_pdf_dir = _input_dir_override or paths.get('input_pdf_dir')
         input_chunks_file = paths.get('input_chunks_file')
         
         if input_chunks_file and os.path.exists(input_chunks_file):
@@ -509,7 +529,8 @@ def check_input_data() -> CheckResult:
 
 def run_preflight_checks(
     skip_expensive: bool = False,
-    quiet: bool = False
+    quiet: bool = False,
+    input_dir: Optional[str] = None
 ) -> Tuple[bool, List[CheckResult]]:
     """
     Run all preflight checks.
@@ -517,10 +538,14 @@ def run_preflight_checks(
     Args:
         skip_expensive: Skip model loading checks (LLM, VLM, embedding, reranker)
         quiet: Suppress output
+        input_dir: Override input directory for check (uses config.yaml if None)
     
     Returns:
         Tuple of (all_passed: bool, results: List[CheckResult])
     """
+    global _input_dir_override
+    _input_dir_override = input_dir
+    
     results = []
     
     # Define checks in order of importance

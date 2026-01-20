@@ -51,9 +51,21 @@ def check_chunk_relevance(chunk_content: str, expert_persona: str, domain: str) 
     from mirage.core.llm import call_llm_simple
     response = call_llm_simple(prompt)
     
-    # Parse response - should be "RELEVANT" or "NOT_RELEVANT"
-    response_upper = response.strip().upper()
-    is_relevant = "RELEVANT" in response_upper and "NOT_RELEVANT" not in response_upper
+    tuple_delimiter = PROMPTS.get("DEFAULT_TUPLE_DELIMITER", "<|#|>")
+    
+    # Parse new format: <|#|>START<|#|>Status<|#|><RELEVANT | NOT_RELEVANT><|#|>Explanation<|#|><text><|#|>END<|#|>
+    is_relevant = False
+    if tuple_delimiter in response:
+        parts = response.split(tuple_delimiter)
+        for i, part in enumerate(parts):
+            if part.strip().lower() == "status" and i + 1 < len(parts):
+                status_value = parts[i + 1].strip().upper()
+                is_relevant = "RELEVANT" in status_value and "NOT_RELEVANT" not in status_value
+                break
+    else:
+        # Fallback: old format - just check for keywords
+        response_upper = response.strip().upper()
+        is_relevant = "RELEVANT" in response_upper and "NOT_RELEVANT" not in response_upper
     
     if is_relevant:
         print(f"  ✅ Chunk is RELEVANT")
@@ -62,8 +74,15 @@ def check_chunk_relevance(chunk_content: str, expert_persona: str, domain: str) 
     
     return is_relevant
 
-def generate_qa(chunks: List[Dict], expert_persona: str, domain: str) -> list:
-    """Generate one or more Q&A pairs from multihop context chunks using consolidated prompt"""
+def generate_qa(chunks: List[Dict], expert_persona: str, domain: str) -> tuple:
+    """Generate one or more Q&A pairs from multihop context chunks using consolidated prompt.
+    
+    Returns:
+        Tuple of (qa_pairs, qa_metadata) where qa_metadata contains:
+        - keywords_per_chunk: Dict mapping chunk identifiers to keyword lists
+        - related_keywords: String describing keyword relationships (bridge keywords)
+        - chunk_count: Number of chunks used in generation
+    """
     print(f"❓ Generating Q&A pairs from {len(chunks)} context chunks...")
     
     # Format prompt with or without domain
@@ -85,47 +104,83 @@ def generate_qa(chunks: List[Dict], expert_persona: str, domain: str) -> list:
     
     # Parse multiple Q&A pairs from response using delimiter format
     qa_pairs = []
+    qa_metadata = {
+        'keywords_per_chunk': {},
+        'related_keywords': '',
+        'chunk_count': 0
+    }
     tuple_delimiter = PROMPTS.get("DEFAULT_TUPLE_DELIMITER", "<|#|>")
     completion_delimiter = PROMPTS.get("DEFAULT_COMPLETION_DELIMITER", "<|#|>END<|#|>")
     
     try:
         # Remove completion delimiter if present
+        full_response = response
         if completion_delimiter in response:
             response = response.split(completion_delimiter)[0].strip()
     
         # Remove START delimiter if present at the beginning
         start_delimiter = tuple_delimiter + "START" + tuple_delimiter
-        if response.startswith(start_delimiter):
-            response = response[len(start_delimiter):].strip()
+        if start_delimiter in response:
+            response = response.split(start_delimiter, 1)[-1].strip()
         
-        # Split by lines and process each Q&A pair
-        lines = [line.strip() for line in response.split('\n') if line.strip()]
+        # New format uses <|#|>QA_GENERATION<|#|> and <|#|>NEXT<|#|> sections
+        qa_generation_marker = tuple_delimiter + "QA_GENERATION" + tuple_delimiter
+        next_delimiter = tuple_delimiter + "NEXT" + tuple_delimiter
+        decomposition_marker = tuple_delimiter + "DECOMPOSITION" + tuple_delimiter
         
-        for line in lines:
-            # Skip NEXT delimiter lines
-            next_delimiter = tuple_delimiter + "NEXT" + tuple_delimiter
-            if line == next_delimiter:
-                continue
+        # Parse keyword metadata from the header section (before QA_GENERATION marker)
+        if qa_generation_marker in response:
+            header_section = response.split(qa_generation_marker)[0].strip()
             
-            # Check if line starts with "Question" delimiter pattern (case-insensitive)
-            if line.startswith("Question" + tuple_delimiter) or line.startswith("question" + tuple_delimiter):
-                # Split by tuple delimiter
-                parts = line.split(tuple_delimiter)
+            # Parse Chunk Count
+            chunk_count_match = re.search(r'Chunk Count:\s*(\d+)', header_section, re.IGNORECASE)
+            if chunk_count_match:
+                qa_metadata['chunk_count'] = int(chunk_count_match.group(1))
+            
+            # Parse Keywords per Chunk: <Chunk 1: [A, B], Chunk 2: [C, D]>
+            keywords_match = re.search(r'Keywords per Chunk:\s*<?(.+?)>?\s*(?=Related Keywords:|$)', header_section, re.IGNORECASE | re.DOTALL)
+            if keywords_match:
+                keywords_str = keywords_match.group(1).strip()
+                # Parse format: Chunk 1: [A, B], Chunk 2: [C, D]
+                chunk_pattern = re.findall(r'Chunk\s*(\d+):\s*\[([^\]]+)\]', keywords_str, re.IGNORECASE)
+                for chunk_num, keywords in chunk_pattern:
+                    keyword_list = [k.strip() for k in keywords.split(',')]
+                    qa_metadata['keywords_per_chunk'][f'chunk_{chunk_num}'] = keyword_list
+            
+            # Parse Related Keywords (bridge keywords): <[A] relates to [C] via...>
+            related_match = re.search(r'Related Keywords:\s*<?(.+?)>?\s*(?=<\|#\||$)', header_section, re.IGNORECASE | re.DOTALL)
+            if related_match:
+                qa_metadata['related_keywords'] = related_match.group(1).strip()
+        
+        # Split by QA_GENERATION or NEXT markers to get QA sections
+        if qa_generation_marker in response:
+            # New format: split by QA_GENERATION and NEXT
+            sections = re.split(re.escape(qa_generation_marker) + r'|' + re.escape(next_delimiter), response)
+            
+            for section in sections:
+                section = section.strip()
+                if not section:
+                    continue
                 
-                # Expected format: Question<|#|><question_text><|#|>Answer<|#|><answer_text><|#|>Relevance<|#|><score><|#|>Difficulty<|#|><score>
-                # Handle both capitalized and lowercase versions
-                if len(parts) >= 4 and parts[0].lower() == "question" and parts[2].lower() == "answer":
-                    question = parts[1].strip()
-                    answer = parts[3].strip()
-                    relevance = "0"
-                    difficulty = "0"
-                    
-                    # Try to extract scores if present
-                    if len(parts) >= 8:
-                        if parts[4].lower() == "relevance":
-                            relevance = parts[5].strip()
-                        if parts[6].lower() == "difficulty":
-                            difficulty = parts[7].strip()
+                # Skip header section (contains Chunk Count, Keywords)
+                if 'Chunk Count:' in section or 'Keywords per Chunk:' in section:
+                    continue
+                
+                # Remove DECOMPOSITION section if present
+                if decomposition_marker in section:
+                    section = section.split(decomposition_marker)[0].strip()
+                
+                # Parse Question: and Answer: lines
+                question_match = re.search(r'Question:\s*(.+?)(?=\n(?:Answer:|Relevance:|Difficulty:)|$)', section, re.DOTALL | re.IGNORECASE)
+                answer_match = re.search(r'Answer:\s*(.+?)(?=\n(?:Relevance:|Difficulty:)|$)', section, re.DOTALL | re.IGNORECASE)
+                relevance_match = re.search(r'Relevance:\s*(\d+)', section, re.IGNORECASE)
+                difficulty_match = re.search(r'Difficulty:\s*(\d+)', section, re.IGNORECASE)
+                
+                if question_match and answer_match:
+                    question = question_match.group(1).strip()
+                    answer = answer_match.group(1).strip()
+                    relevance = relevance_match.group(1) if relevance_match else "0"
+                    difficulty = difficulty_match.group(1) if difficulty_match else "0"
                     
                     if question and answer:
                         qa_pairs.append({
@@ -135,64 +190,81 @@ def generate_qa(chunks: List[Dict], expert_persona: str, domain: str) -> list:
                             "difficulty_score": difficulty
                         })
         
+        # Fallback: try inline delimiter format (Question<|#|>...<|#|>Answer<|#|>...)
         if not qa_pairs:
-            # Fallback: try old format patterns for backward compatibility
-            # Try delimiter format with case-insensitive matching
-            for line in lines:
-                if re.match(r'(?i)^question', line):
-                    parts = re.split(r'(?i)question' + re.escape(tuple_delimiter), line, maxsplit=1)
-                    if len(parts) >= 2:
-                        qa_content = parts[1]
-                        qa_parts = qa_content.split(tuple_delimiter)
-                        if len(qa_parts) >= 3 and qa_parts[1].lower() == "answer":
-                            question = qa_parts[0].strip()
-                            answer = qa_parts[2].strip()
-                            if question and answer:
-                                qa_pairs.append({
-                                    "question": question, 
-                                    "answer": answer,
-                                    "relevance_score": "0",
-                                    "difficulty_score": "0"
-                                })
+            lines = [line.strip() for line in response.split('\n') if line.strip()]
             
-            # Final fallback: try old Question:/Answer: format
-            if not qa_pairs:
-                question_matches = re.finditer(r'(?i)Question:\s*(.*?)(?=\nAnswer:|\n\n|$)', response, re.DOTALL)
-                answer_matches = re.finditer(r'(?i)Answer:\s*(.*?)(?=\nQuestion:|\n\n|$)', response, re.DOTALL)
-        
-                questions = [m.group(1).strip() for m in question_matches]
-                answers = [m.group(1).strip() for m in answer_matches]
+            for line in lines:
+                # Skip NEXT delimiter lines
+                if line == next_delimiter:
+                    continue
                 
-                if questions and answers and len(questions) == len(answers):
-                    for q, a in zip(questions, answers):
-                        qa_pairs.append({
-                            "question": q, 
-                            "answer": a,
-                            "relevance_score": "0",
-                            "difficulty_score": "0"
-                        })
-                elif questions and answers:
-                    # Mismatched counts, try to pair them
-                    for i, q in enumerate(questions):
-                        if i < len(answers):
+                # Check if line starts with "Question" delimiter pattern
+                if line.startswith("Question" + tuple_delimiter) or line.startswith("question" + tuple_delimiter):
+                    parts = line.split(tuple_delimiter)
+                    
+                    # Format: Question<|#|><text><|#|>Answer<|#|><text><|#|>Relevance<|#|><score><|#|>Difficulty<|#|><score>
+                    if len(parts) >= 4 and parts[0].lower() == "question" and parts[2].lower() == "answer":
+                        question = parts[1].strip()
+                        answer = parts[3].strip()
+                        relevance = "0"
+                        difficulty = "0"
+                        
+                        if len(parts) >= 8:
+                            if parts[4].lower() == "relevance":
+                                relevance = parts[5].strip()
+                            if parts[6].lower() == "difficulty":
+                                difficulty = parts[7].strip()
+                        
+                        if question and answer:
                             qa_pairs.append({
-                                "question": q, 
-                                "answer": answers[i],
-                                "relevance_score": "0",
-                                "difficulty_score": "0"
+                                "question": question,
+                                "answer": answer,
+                                "relevance_score": relevance,
+                                "difficulty_score": difficulty
                             })
-                
-                if not qa_pairs:
-                    print("⚠️ Could not parse Q&A from response")
+        
+        # Final fallback: try old Question:/Answer: format
+        if not qa_pairs:
+            question_matches = re.finditer(r'(?i)Question:\s*(.*?)(?=\nAnswer:|\n\n|$)', response, re.DOTALL)
+            answer_matches = re.finditer(r'(?i)Answer:\s*(.*?)(?=\nQuestion:|\n\n|$)', response, re.DOTALL)
+    
+            questions = [m.group(1).strip() for m in question_matches]
+            answers = [m.group(1).strip() for m in answer_matches]
+            
+            if questions and answers and len(questions) == len(answers):
+                for q, a in zip(questions, answers):
                     qa_pairs.append({
-                        "question": response,
-                        "answer": "",
+                        "question": q, 
+                        "answer": a,
                         "relevance_score": "0",
                         "difficulty_score": "0"
                     })
+            elif questions and answers:
+                for i, q in enumerate(questions):
+                    if i < len(answers):
+                        qa_pairs.append({
+                            "question": q, 
+                            "answer": answers[i],
+                            "relevance_score": "0",
+                            "difficulty_score": "0"
+                        })
+            
+            if not qa_pairs:
+                print("⚠️ Could not parse Q&A from response")
+                qa_pairs.append({
+                    "question": response,
+                    "answer": "",
+                    "relevance_score": "0",
+                    "difficulty_score": "0"
+                })
         
         print(f"✅ Generated {len(qa_pairs)} Q&A pair(s)")
-        return qa_pairs
+        if qa_metadata['keywords_per_chunk']:
+            print(f"   Keywords extracted: {len(qa_metadata['keywords_per_chunk'])} chunks")
+        if qa_metadata['related_keywords']:
+            print(f"   Bridge keywords: {qa_metadata['related_keywords'][:80]}...")
+        return qa_pairs, qa_metadata
         
     except Exception as e:
         print(f"⚠️ Error parsing Q&A: {e}")
@@ -203,7 +275,7 @@ def generate_qa(chunks: List[Dict], expert_persona: str, domain: str) -> list:
             "answer": "",
             "relevance_score": "0",
             "difficulty_score": "0"
-        }]
+        }], qa_metadata
 
 def select_qa_pairs(qa_pairs: list, chunks: List[Dict], expert_persona: str, domain: str) -> tuple[list, list]:
     """Select/filter Q&A pairs using the selection agent. Returns (selected, rejected).
@@ -215,6 +287,7 @@ def select_qa_pairs(qa_pairs: list, chunks: List[Dict], expert_persona: str, dom
         return [], []
     
     tuple_delimiter = PROMPTS.get("DEFAULT_TUPLE_DELIMITER", "<|#|>")
+    completion_delimiter = PROMPTS.get("DEFAULT_COMPLETION_DELIMITER", "<|#|>END<|#|>")
     
     # Format domain context
     if domain:
@@ -251,16 +324,26 @@ def select_qa_pairs(qa_pairs: list, chunks: List[Dict], expert_persona: str, dom
     for idx, (qa_pair, response) in enumerate(zip(qa_pairs, responses), 1):
         try:
             if response and not response.startswith("ERROR:"):
+                # Remove END delimiter if present
+                if completion_delimiter in response:
+                    response = response.split(completion_delimiter)[0].strip()
+                
+                # Remove START delimiter if present
+                start_delimiter = tuple_delimiter + "START" + tuple_delimiter
+                if start_delimiter in response:
+                    response = response.split(start_delimiter, 1)[-1].strip()
+                
                 parts = response.split(tuple_delimiter)
                 status = "REJECTED"
                 relevance = "0"
                 difficulty = "0"
                 reason = "No reason provided"
                 
-                for i in range(0, len(parts), 2):
-                    if i+1 < len(parts):
-                        key = parts[i].strip().lower()
-                        value = parts[i+1].strip()
+                # Parse key-value pairs from delimiter format
+                for i in range(len(parts)):
+                    key = parts[i].strip().lower()
+                    if i + 1 < len(parts):
+                        value = parts[i + 1].strip()
                         
                         if key == "status":
                             status = value.upper()
@@ -306,10 +389,11 @@ def verify_qa(chunks: List[Dict], question: str, answer: str, expert_persona: st
     else:
         domain_context = ""
     
+    # Note: New prompt uses {questions} and {answers} (plural)
     prompt = PROMPTS["question_answer_verification"].format(
         content="[Refer to the chunks provided below]",
-        question=question,
-        answer=answer,
+        questions=question,
+        answers=answer,
         expert_persona=expert_persona,
         domain_context=domain_context
     )
@@ -341,10 +425,11 @@ def batch_verify_qa(chunks: List[Dict], qa_pairs: List[Dict], expert_persona: st
     # Prepare batch requests
     requests = []
     for qa in qa_pairs:
+        # Note: New prompt uses {questions} and {answers} (plural)
         prompt = PROMPTS["question_answer_verification"].format(
             content="[Refer to the chunks provided below]",
-            question=qa['question'],
-            answer=qa['answer'],
+            questions=qa['question'],
+            answers=qa['answer'],
             expert_persona=expert_persona,
             domain_context=domain_context
         )
@@ -394,7 +479,7 @@ def process_chunk_for_qa(chunk_data: Dict, expert_persona: str, domain: str) -> 
     
     # Stage 3: Generate Q&A pairs from multihop context
     print(f"\n🔄 Stage 3: Generating Q&A pairs from multihop context ({len(context_chunks)} chunks)...")
-    qa_pairs = generate_qa(context_chunks, expert_persona, domain)
+    qa_pairs, qa_metadata = generate_qa(context_chunks, expert_persona, domain)
     
     # Stage 3.5: Select Q&A pairs
     print("\n🔄 Stage 3.5: Selecting Q&A pairs...")
@@ -434,19 +519,36 @@ def process_chunk_for_qa(chunk_data: Dict, expert_persona: str, domain: str) -> 
         "context_status": completion_status,
         "depth_reached": context_result['depth'],
         "chunks_added": context_result['chunks_added'],
+        "search_history": context_result.get('search_history', []),
         "expert_persona": expert_persona,
         "domain": domain,
+        "keywords_per_chunk": qa_metadata.get('keywords_per_chunk', {}),
+        "related_keywords": qa_metadata.get('related_keywords', ''),
         "selected_qa_pairs": verified_qa_pairs,
         "rejected_qa_pairs": rejected_pairs
     }
 
 def is_verification_successful(verification_result: str) -> bool:
-    """Check if verification indicates success"""
+    """Check if verification indicates success.
+    
+    New format: <|#|>START<|#|>Status<|#|><Label 1>, <Label 2>, <Label 3><|#|>Explanation<|#|><text><|#|>END<|#|>
+    """
     required_good = ["QUESTION_CORRECT", "ANSWER_CORRECT", "REQUIRES_CONTENT"]
     bad_values = ["QUESTION_INCORRECT", "ANSWER_INCORRECT", "CAN_ANSWER_WITHOUT_CONTENT"]
     
-    has_bad = any(bad in verification_result for bad in bad_values)
-    has_all_good = all(good in verification_result for good in required_good)
+    # Parse the status field from the new format
+    tuple_delimiter = PROMPTS.get("DEFAULT_TUPLE_DELIMITER", "<|#|>")
+    status_content = verification_result
+    
+    if tuple_delimiter in verification_result:
+        parts = verification_result.split(tuple_delimiter)
+        for i, part in enumerate(parts):
+            if part.strip().lower() == "status" and i + 1 < len(parts):
+                status_content = parts[i + 1].strip()
+                break
+    
+    has_bad = any(bad in status_content.upper() for bad in bad_values)
+    has_all_good = all(good in status_content.upper() for good in required_good)
     
     return has_all_good and not has_bad
 
@@ -512,8 +614,8 @@ def correct_failed_qa(chunks: List[Dict], failed_qa_pairs: List[Dict],
         
         # Remove START delimiter if present
         start_delimiter = tuple_delimiter + "START" + tuple_delimiter
-        if response.startswith(start_delimiter):
-            response = response[len(start_delimiter):].strip()
+        if start_delimiter in response:
+            response = response.split(start_delimiter, 1)[-1].strip()
         
         # Check for empty response (no valid correction possible)
         if not response.strip() or response.strip() == tuple_delimiter + "START" + tuple_delimiter:
@@ -529,22 +631,23 @@ def correct_failed_qa(chunks: List[Dict], failed_qa_pairs: List[Dict],
             if not section:
                 continue
             
-            # Parse Question, Answer, Relevance, Difficulty
+            # Parse Question, Answer, Relevance, Difficulty from delimiter format
             parts = section.split(tuple_delimiter)
             qa_dict = {}
             
-            for j in range(0, len(parts) - 1, 2):
+            for j in range(len(parts)):
                 key = parts[j].strip()
-                value = parts[j + 1].strip() if j + 1 < len(parts) else ""
-                
-                if key == "Question":
-                    qa_dict["question"] = value
-                elif key == "Answer":
-                    qa_dict["answer"] = value
-                elif key == "Relevance":
-                    qa_dict["relevance_score"] = value
-                elif key == "Difficulty":
-                    qa_dict["difficulty_score"] = value
+                if j + 1 < len(parts):
+                    value = parts[j + 1].strip()
+                    
+                    if key.lower() == "question":
+                        qa_dict["question"] = value
+                    elif key.lower() == "answer":
+                        qa_dict["answer"] = value
+                    elif key.lower() == "relevance":
+                        qa_dict["relevance_score"] = value
+                    elif key.lower() == "difficulty":
+                        qa_dict["difficulty_score"] = value
             
             if qa_dict.get("question") and qa_dict.get("answer"):
                 qa_dict["correction_status"] = "CORRECTED"
@@ -672,6 +775,9 @@ if __name__ == "__main__":
                         "context_status": result["context_status"],
                         "depth_reached": result["depth_reached"],
                         "chunks_added": result["chunks_added"],
+                        "search_history": result.get("search_history", []),
+                        "keywords_per_chunk": result.get("keywords_per_chunk", {}),
+                        "related_keywords": result.get("related_keywords", ""),
                         "expert_persona": result["expert_persona"],
                         "domain": result.get("domain", ""),
                         "question": qa_pair["question"],
@@ -692,6 +798,9 @@ if __name__ == "__main__":
                         "context_status": result["context_status"],
                         "depth_reached": result["depth_reached"],
                         "chunks_added": result["chunks_added"],
+                        "search_history": result.get("search_history", []),
+                        "keywords_per_chunk": result.get("keywords_per_chunk", {}),
+                        "related_keywords": result.get("related_keywords", ""),
                         "expert_persona": result["expert_persona"],
                         "domain": result.get("domain", ""),
                         "question": qa_pair["question"],
@@ -714,6 +823,9 @@ if __name__ == "__main__":
                     "context_status": result["context_status"],
                     "depth_reached": result["depth_reached"],
                     "chunks_added": result["chunks_added"],
+                    "search_history": result.get("search_history", []),
+                    "keywords_per_chunk": result.get("keywords_per_chunk", {}),
+                    "related_keywords": result.get("related_keywords", ""),
                     "expert_persona": result["expert_persona"],
                     "domain": result.get("domain", ""),
                     "question": qa_pair["question"],

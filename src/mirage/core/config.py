@@ -217,6 +217,46 @@ def get_qa_generation_config() -> Dict[str, Any]:
     })
 
 
+def get_faiss_config() -> Dict[str, Any]:
+    """Get FAISS configuration.
+    
+    Returns:
+        Dict with:
+        - 'index_type': FAISS index type (default: IndexFlatIP)
+        - 'normalize_l2': Whether to normalize embeddings (default: True)
+        - 'use_gpu': Whether to use GPU for FAISS (default: False)
+        - 'gpu_id': GPU device ID to use (default: 0)
+    """
+    config = load_config()
+    return config.get('faiss', {
+        'index_type': 'IndexFlatIP',
+        'normalize_l2': True,
+        'use_gpu': False,
+        'gpu_id': 0
+    })
+
+
+def get_deduplication_config() -> Dict[str, Any]:
+    """Get deduplication configuration.
+    
+    Returns:
+        Dict with:
+        - 'enabled': Whether to run deduplication (default: True)
+        - 'alpha': Blending factor for similarity (default: 0.6)
+        - 'question_similarity_threshold': Threshold for question similarity (default: 0.75)
+        - 'min_community_size': Minimum cluster size (default: 2)
+        - 'answer_similarity': Dict of similarity thresholds
+    """
+    config = load_config()
+    return config.get('deduplication', {
+        'enabled': True,
+        'alpha': 0.6,
+        'question_similarity_threshold': 0.75,
+        'min_community_size': 2,
+        'answer_similarity': {'low': 0.7, 'medium': 0.85, 'high': 0.95}
+    })
+
+
 # Convenience function to print current config
 def print_config_summary():
     """Print a summary of the current configuration."""

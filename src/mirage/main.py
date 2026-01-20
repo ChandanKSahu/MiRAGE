@@ -22,6 +22,11 @@ import multiprocessing as mp
 from mirage.core.llm import setup_logging, BACKEND, LLM_MODEL_NAME, VLM_MODEL_NAME, GEMINI_RPM, GEMINI_BURST
 from mirage.utils.stats import compute_dataset_stats, print_dataset_stats, compute_qa_category_stats, print_qa_category_stats
 from mirage.utils.preflight import run_preflight_checks
+from mirage.utils.checkpoint import CheckpointManager
+from mirage.utils.llm_cache import init_llm_cache, get_llm_cache
+
+# Global checkpoint manager (initialized in run_pipeline)
+_CHECKPOINT_MANAGER = None
 
 # ============================================================================
 # CONFIGURATION - Load from config.yaml if available
@@ -30,7 +35,8 @@ try:
     from mirage.core.config import (
         load_config, get_paths_config, get_processing_config, 
         get_parallel_config, get_retrieval_config, get_embedding_config,
-        get_evaluation_config, get_qa_correction_config, get_qa_generation_config
+        get_evaluation_config, get_qa_correction_config, get_qa_generation_config,
+        get_faiss_config, get_deduplication_config
     )
     
     _cfg = load_config()
@@ -43,6 +49,7 @@ try:
     _shuffle = _cfg.get('shuffling', {})
     _qa_correction = get_qa_correction_config()
     _qa_gen = get_qa_generation_config()
+    _dedup = get_deduplication_config()
     
     # Input/Output paths
     INPUT_PDF_DIR = _paths.get('input_pdf_dir', "data/documents")
@@ -74,7 +81,7 @@ try:
     _multihop = _retrieval.get('multihop', {})
     # SAFETY: Limit depth and breadth to prevent runaway API calls
     # Each iteration can generate depth x breadth x chunks_per_search API calls
-    MAX_DEPTH = min(_multihop.get('max_depth') or 10, 20)  # Default 10, max 20
+    MAX_DEPTH = min(_multihop.get('max_depth') or 5, 20)  # Default 5, max 20
     MAX_BREADTH = min(_multihop.get('max_breadth') or 5, 10)  # Default 5, max 10
     CHUNKS_PER_SEARCH = _multihop.get('chunks_per_search', 2)
     CHUNK_ADDITION_MODE = _multihop.get('chunk_addition_mode', 'RELATED')  # EXPLANATORY or RELATED
@@ -93,6 +100,14 @@ try:
     QA_NUM_PAIRS = _qa_gen.get('num_qa_pairs', 1000)  # Target number of QA pairs
     QA_TYPE = _qa_gen.get('type', 'multihop')  # Type: 'multihop', 'multimodal', 'text', 'mix'
     
+    # FAISS config
+    _faiss = get_faiss_config()
+    FAISS_USE_GPU = _faiss.get('use_gpu', False)
+    FAISS_GPU_ID = _faiss.get('gpu_id', 0)
+    
+    # Deduplication config
+    RUN_DEDUPLICATION = _dedup.get('enabled', True)
+    
     print("Configuration loaded from config.yaml")
     
 except (ImportError, Exception):
@@ -105,7 +120,7 @@ except (ImportError, Exception):
     
     # SAFETY: Reasonable defaults to prevent runaway API calls
     # Each iteration can generate depth x breadth x chunks_per_search API calls
-    MAX_DEPTH = 10  # Maximum 10 iterations per chunk
+    MAX_DEPTH = 5  # Maximum 5 iterations per chunk
     MAX_BREADTH = 5  # Maximum 5 search strings per verification
     CHUNKS_PER_SEARCH = 2
     CHUNK_ADDITION_MODE = "RELATED"  # EXPLANATORY or RELATED
@@ -132,6 +147,9 @@ except (ImportError, Exception):
     GEMINI_API_KEY_PATH = os.path.expanduser("~/.config/gemini/api_key.txt")
     USE_OPTIMIZED_METRICS = True  # 3-5x faster evaluation
     
+    # Deduplication default
+    RUN_DEDUPLICATION = True
+    
     # QA Correction defaults
     QA_CORRECTION_ENABLED = True
     QA_CORRECTION_MAX_ATTEMPTS = 1
@@ -139,6 +157,10 @@ except (ImportError, Exception):
     # QA Generation Control defaults
     QA_NUM_PAIRS = 1000  # Default: 1000 QA pairs
     QA_TYPE = "multihop"  # Default: multihop QA pairs
+    
+    # FAISS defaults
+    FAISS_USE_GPU = False
+    FAISS_GPU_ID = 0
 
 # Derived output paths
 OUTPUT_CHUNKS = os.path.join(OUTPUT_DIR, "chunks.json")
@@ -176,13 +198,13 @@ def get_reranker():
     if CACHE_EMBEDDINGS:
         if 'reranker' not in _MODEL_CACHE or _MODEL_CACHE['reranker'] is None:
             print(f"Loading VLM reranker (uses {BACKEND} API)...")
-            from mirage.embeddings.rerankers_multimodal import VLMReranker
-            _MODEL_CACHE['reranker'] = VLMReranker()
+            from mirage.embeddings.rerankers_multimodal import GeminiVLMReranker
+            _MODEL_CACHE['reranker'] = GeminiVLMReranker()
             print(f"VLM reranker loaded and cached")
         return _MODEL_CACHE['reranker']
     else:
-        from mirage.embeddings.rerankers_multimodal import VLMReranker
-        return VLMReranker()
+        from mirage.embeddings.rerankers_multimodal import GeminiVLMReranker
+        return GeminiVLMReranker()
 
 def _load_sentence_transformer(model_name: str):
     """Load SentenceTransformer safely, avoiding meta tensor issues"""
@@ -203,16 +225,43 @@ def _load_sentence_transformer(model_name: str):
         print(f"CPU-first loading failed ({e}), trying direct load...")
         return SentenceTransformer(model_name, device=device)
 
-def get_embedder(model_name: Optional[str] = None):
-    """Get or create embedding model (cached if CACHE_EMBEDDINGS=True)"""
+def get_embedder(model_name: Optional[str] = None, use_multimodal: bool = True):
+    """Get or create embedding model (cached if CACHE_EMBEDDINGS=True)
+    
+    Args:
+        model_name: Specific model to load, or None to use config/auto-detect
+        use_multimodal: If True and model_name is None, try multimodal models first
+                       (Qwen3-VL → Nomic → bge-m3 fallback)
+    """
+    global EMBEDDING_MODEL
+    
     if model_name is None:
         model_name = EMBEDDING_MODEL
+    
+    # If requesting multimodal auto-detection
+    if use_multimodal and model_name in ["auto", "multimodal", None, ""]:
+        cache_key = "_multimodal_auto"
+        if CACHE_EMBEDDINGS and cache_key in _MODEL_CACHE and _MODEL_CACHE[cache_key] is not None:
+            return _MODEL_CACHE[cache_key]
+        
+        from mirage.embeddings.models import get_multimodal_embedder
+        embedder, actual_model, is_multimodal = get_multimodal_embedder(gpus=EMBEDDING_GPUS)
+        EMBEDDING_MODEL = actual_model  # Update global for consistent naming
+        
+        if CACHE_EMBEDDINGS:
+            _MODEL_CACHE[cache_key] = embedder
+            _MODEL_CACHE[actual_model] = embedder
+            print(f"{actual_model} model loaded and cached (multimodal={is_multimodal})")
+        return embedder
     
     if CACHE_EMBEDDINGS:
         if model_name not in _MODEL_CACHE or _MODEL_CACHE[model_name] is None:
             print(f"Loading embedding model: {model_name}...")
             
-            if model_name == "nomic":
+            if model_name == "qwen3_vl":
+                from mirage.embeddings.models import Qwen3VLEmbed
+                _MODEL_CACHE[model_name] = Qwen3VLEmbed(gpus=EMBEDDING_GPUS)
+            elif model_name == "nomic":
                 from mirage.embeddings.models import NomicVLEmbed as NomicEmbedder
                 _MODEL_CACHE[model_name] = NomicEmbedder(gpus=EMBEDDING_GPUS)
             elif model_name in ["bge_m3", "BAAI/bge-m3"]:
@@ -227,7 +276,10 @@ def get_embedder(model_name: Optional[str] = None):
             print(f"{model_name} model loaded and cached")
         return _MODEL_CACHE[model_name]
     else:
-        if model_name == "nomic":
+        if model_name == "qwen3_vl":
+            from mirage.embeddings.models import Qwen3VLEmbed
+            return Qwen3VLEmbed(gpus=EMBEDDING_GPUS)
+        elif model_name == "nomic":
             from mirage.embeddings.models import NomicVLEmbed as NomicEmbedder
             return NomicEmbedder(gpus=EMBEDDING_GPUS)
         elif model_name in ["bge_m3", "BAAI/bge-m3"]:
@@ -388,101 +440,196 @@ def _chunk_single_markdown(args: Tuple[str, str]) -> Tuple[str, List[dict], str]
         return (file_stem, [], str(e))
 
 
-def convert_documents_to_chunks_parallel(doc_dir: str, output_chunks_file: str) -> list:
-    """Convert document files (PDF and HTML) to semantic chunks via markdown (PARALLEL)"""
+def convert_documents_to_chunks_parallel(doc_dir: str, output_chunks_file: str, 
+                                         checkpoint_mgr: CheckpointManager = None) -> list:
+    """Convert document files (PDF and HTML) to semantic chunks via markdown (PARALLEL)
+    
+    Supports checkpoint resume:
+    - Resumes markdown conversion from last checkpoint
+    - Resumes chunking from last checkpoint
+    - Saves progress after each file
+    """
     from mirage.pipeline.pdf_processor import SUPPORTED_EXTENSIONS
+    from mirage.pipeline.chunker import renumber_chunks
     
     doc_dir = Path(doc_dir)
     output_dir = Path(OUTPUT_DIR)
+    markdown_dir = output_dir / "markdown"
     
-    # Collect all supported document files
+    # Use global checkpoint manager if not provided
+    if checkpoint_mgr is None:
+        checkpoint_mgr = _CHECKPOINT_MANAGER
+    
+    # =========================================================================
+    # CHECK FOR CHECKPOINTED CHUNKS (Resume from chunks checkpoint)
+    # =========================================================================
+    if checkpoint_mgr and checkpoint_mgr.is_final_chunks_saved():
+        # Load from checkpoint file instead of output file
+        saved_chunks = checkpoint_mgr.get_all_file_chunks()
+        if saved_chunks:
+            all_chunks = []
+            for chunks in saved_chunks.values():
+                all_chunks.extend(chunks)
+            print(f"📂 Resuming from chunks checkpoint: {len(all_chunks)} chunks from {len(saved_chunks)} files")
+            return all_chunks
+    
+    # =========================================================================
+    # CHECK FOR EXISTING/CHECKPOINTED MARKDOWN FILES
+    # =========================================================================
+    completed_md_stems = set()
+    if checkpoint_mgr:
+        completed_md_stems = checkpoint_mgr.get_completed_markdown_files()
+    
+    existing_md_files = []
+    if markdown_dir.exists():
+        for subdir in markdown_dir.iterdir():
+            if subdir.is_dir():
+                ref_files = list(subdir.glob("*_ref.md"))
+                if ref_files:
+                    for ref_file in ref_files:
+                        file_stem = subdir.name
+                        existing_md_files.append((str(ref_file), file_stem))
+                        completed_md_stems.add(file_stem)
+    
+    # Collect all document files
     doc_files = []
     for ext in SUPPORTED_EXTENSIONS:
         doc_files.extend(doc_dir.glob(f"*{ext}"))
     
-    if not doc_files:
+    if not doc_files and not existing_md_files:
         print(f"No document files found in {doc_dir}")
         print(f"   Supported formats: {SUPPORTED_EXTENSIONS}")
         return []
     
-    # Count by format
-    pdf_count = sum(1 for f in doc_files if f.suffix.lower() == '.pdf')
-    html_count = sum(1 for f in doc_files if f.suffix.lower() in {'.html', '.htm', '.xhtml'})
-    print(f"Found {len(doc_files)} documents (PDF: {pdf_count}, HTML: {html_count})")
+    # Filter out already-converted documents
+    pending_docs = [f for f in doc_files if f.stem not in completed_md_stems]
     
-    # Sort by file size if enabled (smallest first for faster trial runs)
-    if SORT_BY_SIZE:
-        doc_files = sorted(doc_files, key=lambda f: f.stat().st_size)
-        print(f"Sorted {len(doc_files)} documents by file size (smallest first)")
+    if existing_md_files:
+        print(f"\n📂 Found {len(existing_md_files)} existing markdown files")
+        for md_path, stem in existing_md_files:
+            print(f"   ✅ {stem}")
     
-    # Limit to first N documents for trial run
-    if MAX_PDFS is not None:
-        doc_files = doc_files[:MAX_PDFS]
-        sizes = [f"{f.name}: {f.stat().st_size / 1024:.1f} KB" for f in doc_files]
-        print(f"TRIAL MODE: Processing {MAX_PDFS} smallest document file(s):")
-        for s in sizes:
-            print(f"   - {s}")
+    md_files = existing_md_files.copy()
     
-    print(f"Processing {len(doc_files)} document file(s)")
-    print(f"Using {NUM_WORKERS} parallel workers for document conversion on GPUs {AVAILABLE_GPUS}")
-    
-    # Phase 1: Convert Documents to Markdown in parallel
-    print(f"\nPhase 1: Converting documents to Markdown...")
-    # Assign each document to a GPU in round-robin fashion
-    # Convert Path objects to strings for multiprocessing serialization
-    output_dir_str = str(output_dir.resolve())
-    doc_args = [(str(doc_file.resolve()), output_dir_str, {}, AVAILABLE_GPUS[i % len(AVAILABLE_GPUS)]) for i, doc_file in enumerate(doc_files)]
-    
-    md_files = []  # List of (file_stem, md_file_path)
-    
-    # Use 'spawn' context to ensure clean process state (CUDA_VISIBLE_DEVICES must be set before torch imports)
-    ctx = mp.get_context('spawn')
-    with ProcessPoolExecutor(max_workers=NUM_WORKERS, mp_context=ctx) as executor:
-        futures = {executor.submit(_convert_single_document, args): Path(args[0]).name for args in doc_args}
+    # =========================================================================
+    # PHASE 1: Convert remaining documents to Markdown
+    # =========================================================================
+    if pending_docs:
+        # Sort by file size if enabled
+        if SORT_BY_SIZE:
+            pending_docs = sorted(pending_docs, key=lambda f: f.stat().st_size)
         
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Converting documents"):
-            doc_name = futures[future]
-            try:
-                name, md_file_path, error = future.result()
-                if error:
-                    print(f"  Error {name}: {error}")
-                else:
-                    file_stem = Path(name).stem
-                    md_files.append((md_file_path, file_stem))
-                    print(f"  {name} -> markdown")
-            except Exception as e:
-                print(f"  Error {doc_name}: {e}")
+        # Limit for trial run
+        if MAX_PDFS is not None:
+            # Account for already completed files
+            remaining_slots = MAX_PDFS - len(completed_md_stems)
+            if remaining_slots > 0:
+                pending_docs = pending_docs[:remaining_slots]
+            else:
+                pending_docs = []
+        
+        if pending_docs:
+            pdf_count = sum(1 for f in pending_docs if f.suffix.lower() == '.pdf')
+            html_count = sum(1 for f in pending_docs if f.suffix.lower() in {'.html', '.htm', '.xhtml'})
+            print(f"\nPhase 1: Converting {len(pending_docs)} documents to Markdown (PDF: {pdf_count}, HTML: {html_count})")
+            print(f"Using {NUM_WORKERS} parallel workers on GPUs {AVAILABLE_GPUS}")
+            
+            output_dir_str = str(output_dir.resolve())
+            doc_args = [(str(doc_file.resolve()), output_dir_str, {}, AVAILABLE_GPUS[i % len(AVAILABLE_GPUS)]) 
+                       for i, doc_file in enumerate(pending_docs)]
+            
+            ctx = mp.get_context('spawn')
+            with ProcessPoolExecutor(max_workers=NUM_WORKERS, mp_context=ctx) as executor:
+                futures = {executor.submit(_convert_single_document, args): Path(args[0]).name for args in doc_args}
+                
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Converting documents"):
+                    doc_name = futures[future]
+                    try:
+                        name, md_file_path, error = future.result()
+                        file_stem = Path(name).stem
+                        if error:
+                            print(f"  ❌ Error {name}: {error}")
+                            if checkpoint_mgr:
+                                checkpoint_mgr.mark_markdown_failed(file_stem, error)
+                        else:
+                            md_files.append((md_file_path, file_stem))
+                            print(f"  ✅ {name} -> markdown")
+                            # Checkpoint after each successful conversion
+                            if checkpoint_mgr:
+                                checkpoint_mgr.mark_markdown_complete(file_stem, md_file_path)
+                    except Exception as e:
+                        print(f"  ❌ Error {doc_name}: {e}")
+                        if checkpoint_mgr:
+                            checkpoint_mgr.mark_markdown_failed(Path(doc_name).stem, str(e))
     
     if not md_files:
         print("No documents converted successfully")
         return []
     
-    # Phase 2: Chunk Markdown files in parallel
-    print(f"\nPhase 2: Chunking {len(md_files)} markdown files...")
+    # =========================================================================
+    # PHASE 2: Chunk Markdown files (with checkpointing)
+    # =========================================================================
+    completed_chunk_files = set()
+    if checkpoint_mgr:
+        completed_chunk_files = checkpoint_mgr.get_completed_chunk_files()
+        saved_chunks = checkpoint_mgr.get_all_file_chunks()
+    else:
+        saved_chunks = {}
+    
+    # Filter out already-chunked files
+    pending_md_files = [(path, stem) for path, stem in md_files if stem not in completed_chunk_files]
+    
+    print(f"\nPhase 2: Chunking markdown files...")
+    if completed_chunk_files:
+        print(f"   ✅ {len(completed_chunk_files)} files already chunked (from checkpoint)")
+    if pending_md_files:
+        print(f"   ⏳ {len(pending_md_files)} files to chunk")
+    
+    # Process pending files
+    if pending_md_files:
+        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+            futures = {executor.submit(_chunk_single_markdown, args): args[1] for args in pending_md_files}
+            
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking"):
+                file_stem = futures[future]
+                try:
+                    name, chunks, error = future.result()
+                    if error:
+                        print(f"  ❌ Error {name}: {error}")
+                    else:
+                        saved_chunks[file_stem] = chunks
+                        print(f"  ✅ {name}: {len(chunks)} chunks")
+                        # Checkpoint after each file is chunked
+                        if checkpoint_mgr:
+                            checkpoint_mgr.save_file_chunks(file_stem, chunks)
+                except Exception as e:
+                    print(f"  ❌ Error {file_stem}: {e}")
+    
+    # =========================================================================
+    # PHASE 3: Combine and renumber all chunks
+    # =========================================================================
+    print(f"\nPhase 3: Combining and renumbering chunks from {len(saved_chunks)} files...")
     
     all_chunks = []
+    chunk_index = 1
+    for file_stem in sorted(saved_chunks.keys()):
+        file_chunks = saved_chunks[file_stem]
+        # Renumber chunks with global index
+        for chunk in file_chunks:
+            chunk['global_chunk_id'] = f"chunk_{chunk_index}"
+            chunk_index += 1
+        all_chunks.extend(file_chunks)
     
-    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-        futures = {executor.submit(_chunk_single_markdown, args): args[1] for args in md_files}
-        
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking"):
-            file_stem = futures[future]
-            try:
-                name, chunks, error = future.result()
-                if error:
-                    print(f"  Error {name}: {error}")
-                else:
-                    all_chunks.extend(chunks)
-                    print(f"  {name}: {len(chunks)} chunks")
-            except Exception as e:
-                print(f"  Error {file_stem}: {e}")
-    
-    # Save all chunks
+    # Save final chunks file
     os.makedirs(os.path.dirname(output_chunks_file), exist_ok=True)
     with open(output_chunks_file, 'w', encoding='utf-8') as f:
         json.dump(all_chunks, f, indent=2, ensure_ascii=False)
     
-    print(f"\nSaved {len(all_chunks)} total chunks to {output_chunks_file}")
+    # Mark final checkpoint
+    if checkpoint_mgr:
+        checkpoint_mgr.mark_final_chunks_saved()
+    
+    print(f"💾 Saved {len(all_chunks)} total chunks to {output_chunks_file}")
     return all_chunks
 
 # Backward compatibility alias
@@ -507,26 +654,35 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
     """Embed all chunks and create a unified FAISS index (BATCHED for GPU efficiency)"""
     import torch
     import gc
+    import glob
     
     os.makedirs(embeddings_dir, exist_ok=True)
     
-    index_path = os.path.join(embeddings_dir, f"{EMBEDDING_MODEL}_index.faiss")
-    metadata_path = os.path.join(embeddings_dir, f"{EMBEDDING_MODEL}_metadata.json")
+    # Check for ANY existing embeddings (handles "auto" model name case)
+    existing_indices = glob.glob(os.path.join(embeddings_dir, "*_index.faiss"))
+    existing_metadata = glob.glob(os.path.join(embeddings_dir, "*_metadata.json"))
     
-    # Check if embeddings already exist
-    if os.path.exists(index_path) and os.path.exists(metadata_path):
-        print(f"Embeddings already exist at {embeddings_dir}")
+    if existing_indices and existing_metadata:
+        # Use the first found index (there should typically be only one)
+        index_path = existing_indices[0]
+        metadata_path = existing_metadata[0]
+        
+        print(f"📂 Found existing embeddings: {os.path.basename(index_path)}")
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         chunk_ids = metadata['chunk_ids']
         
-        if CACHE_EMBEDDINGS and _EMBEDDING_CACHE['chunk_embeddings'] is not None:
-            embeddings_array = _EMBEDDING_CACHE['chunk_embeddings']
-            print(f"Using cached embeddings from memory")
+        # Verify chunk count matches
+        if len(chunk_ids) == len(chunks):
+            if CACHE_EMBEDDINGS and _EMBEDDING_CACHE['chunk_embeddings'] is not None:
+                embeddings_array = _EMBEDDING_CACHE['chunk_embeddings']
+                print(f"   Using cached embeddings from memory ({len(chunk_ids)} chunks)")
+            else:
+                print(f"   Index exists but embeddings not in cache - will recompute for topic modeling")
+                embeddings_array = None
+            return embeddings_dir, embeddings_array, chunk_ids
         else:
-            print(f"Index exists but embeddings not in cache - will recompute for topic modeling")
-            embeddings_array = None
-        return embeddings_dir, embeddings_array, chunk_ids
+            print(f"   ⚠️ Chunk count mismatch ({len(chunk_ids)} in index vs {len(chunks)} current) - re-embedding")
     
     print(f"\nEmbedding {len(chunks)} chunks (batch_size={EMBED_BATCH_SIZE})...")
     
@@ -672,16 +828,34 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
     faiss.normalize_L2(embeddings_array)
     
     dim = embeddings_array.shape[1]
-    index = faiss.IndexFlatIP(dim)
-    index.add(embeddings_array)
+    cpu_index = faiss.IndexFlatIP(dim)
+    cpu_index.add(embeddings_array)
+    
+    # Transfer to GPU if enabled
+    if FAISS_USE_GPU:
+        try:
+            res = faiss.StandardGpuResources()
+            gpu_index = faiss.index_cpu_to_gpu(res, FAISS_GPU_ID, cpu_index)
+            index = gpu_index
+            print(f"✅ FAISS index transferred to GPU {FAISS_GPU_ID}")
+        except Exception as e:
+            print(f"⚠️ Failed to transfer FAISS index to GPU: {e}")
+            print("   Falling back to CPU index")
+            index = cpu_index
+    else:
+        index = cpu_index
     
     if CACHE_EMBEDDINGS:
         _EMBEDDING_CACHE['chunk_embeddings'] = embeddings_array
         _EMBEDDING_CACHE['chunk_embeddings_index'] = index
         _EMBEDDING_CACHE['chunk_ids'] = chunk_ids
+        # Store GPU resources to prevent garbage collection
+        if FAISS_USE_GPU and 'res' in dir():
+            _EMBEDDING_CACHE['gpu_resources'] = res
         print(f"Cached {len(chunk_ids)} chunk embeddings in memory")
     
-    faiss.write_index(index, index_path)
+    # Always save CPU index to disk (GPU index can't be serialized)
+    faiss.write_index(cpu_index, index_path)
     print(f"Saved FAISS index to {index_path}")
     
     metadata = {
@@ -823,7 +997,7 @@ def process_single_chunk_for_qa(chunk_data: tuple, domain: str, expert_persona: 
         }
         
         # 4.2 Generate QA pairs
-        qa_pairs = generate_qa(context_chunks, expert_persona, domain)
+        qa_pairs, qa_metadata = generate_qa(context_chunks, expert_persona, domain)
         
         # 4.3 Select relevant pairs
         selected, rejected = select_qa_pairs(qa_pairs, context_chunks, expert_persona, domain)
@@ -847,6 +1021,10 @@ def process_single_chunk_for_qa(chunk_data: tuple, domain: str, expert_persona: 
                 'hop_count': context_result.get('hop_count', 0),
                 'max_breadth_used': context_result.get('max_breadth_used', 0),
                 'chunks_added': context_result['chunks_added'],
+                'search_history': context_result.get('search_history', []),
+                'iteration_logs': context_result.get('iteration_logs', []),
+                'keywords_per_chunk': qa_metadata.get('keywords_per_chunk', {}),
+                'related_keywords': qa_metadata.get('related_keywords', ''),
                 'expert_persona': expert_persona,
                 'domain': domain,
                 'question': qa['question'],
@@ -916,6 +1094,10 @@ def process_single_chunk_for_qa(chunk_data: tuple, domain: str, expert_persona: 
                         'hop_count': context_result.get('hop_count', 0),
                         'max_breadth_used': context_result.get('max_breadth_used', 0),
                         'chunks_added': context_result['chunks_added'],
+                        'search_history': context_result.get('search_history', []),
+                        'iteration_logs': context_result.get('iteration_logs', []),
+                        'keywords_per_chunk': qa_metadata.get('keywords_per_chunk', {}),
+                        'related_keywords': qa_metadata.get('related_keywords', ''),
                         'expert_persona': expert_persona,
                         'domain': domain,
                         'question': corrected['question'],
@@ -965,6 +1147,10 @@ def process_single_chunk_for_qa(chunk_data: tuple, domain: str, expert_persona: 
                 'hop_count': context_result.get('hop_count', 0),
                 'max_breadth_used': context_result.get('max_breadth_used', 0),
                 'chunks_added': context_result['chunks_added'],
+                'search_history': context_result.get('search_history', []),
+                'iteration_logs': context_result.get('iteration_logs', []),
+                'keywords_per_chunk': qa_metadata.get('keywords_per_chunk', {}),
+                'related_keywords': qa_metadata.get('related_keywords', ''),
                 'question': qa['question'],
                 'answer': qa['answer'],
                 'relevance_score': qa.get('relevance_score', '0'),
@@ -1059,11 +1245,14 @@ def is_qa_type_match(qa_entry: dict, qa_type: str) -> bool:
     return True
 
 
-def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str) -> tuple:
+def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str,
+                                  checkpoint_mgr: CheckpointManager = None) -> tuple:
     """Generate QA pairs with multihop context retrieval (PARALLEL)
     
-    Supports early stopping when QA_NUM_PAIRS target is reached.
-    Filters output based on QA_TYPE setting.
+    Supports:
+    - Early stopping when QA_NUM_PAIRS target is reached
+    - Checkpoint resume from previous run
+    - Filters output based on QA_TYPE setting
     
     Returns:
         Tuple of (successful_qa, failed_qa, chunks_with_context, generation_stats)
@@ -1071,9 +1260,21 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
     """
     import threading
     
-    successful_qa = []
-    failed_qa = []
-    chunks_with_context = []
+    # Use global checkpoint manager if not provided
+    if checkpoint_mgr is None:
+        checkpoint_mgr = _CHECKPOINT_MANAGER
+    
+    # Load existing progress from checkpoint
+    if checkpoint_mgr:
+        completed_chunk_ids = checkpoint_mgr.get_completed_qa_chunk_ids()
+        existing_successful, existing_failed, existing_contexts = checkpoint_mgr.get_accumulated_qa()
+    else:
+        completed_chunk_ids = set()
+        existing_successful, existing_failed, existing_contexts = [], [], []
+    
+    successful_qa = existing_successful.copy()
+    failed_qa = existing_failed.copy()
+    chunks_with_context = existing_contexts.copy()
     
     # Filter chunks based on QA type
     filtered_chunks = filter_chunks_by_qa_type(chunks, QA_TYPE)
@@ -1084,17 +1285,43 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
     process_chunks = filtered_chunks[:MAX_CHUNKS] if MAX_CHUNKS else filtered_chunks
     chunk_data = [(i+1, chunk) for i, chunk in enumerate(process_chunks)]
     
+    # Filter out already-completed chunks
+    pending_chunk_data = [(idx, chunk) for idx, chunk in chunk_data 
+                          if str(idx) not in completed_chunk_ids]
+    
     # Target QA count (None = no limit)
     target_qa_count = QA_NUM_PAIRS
     
     print(f"\nUsing {QA_MAX_WORKERS} parallel workers for QA generation")
     print(f"Target: {target_qa_count if target_qa_count else 'unlimited'} '{QA_TYPE}' QA pairs")
-    print(f"Processing {len(chunk_data)} chunks from corpus")
+    
+    if completed_chunk_ids:
+        print(f"📂 Resuming from checkpoint: {len(completed_chunk_ids)} chunks already processed")
+        print(f"   ✅ {len(existing_successful)} successful QA pairs loaded")
+        print(f"   ⏳ {len(pending_chunk_data)} chunks remaining")
+    else:
+        print(f"Processing {len(chunk_data)} chunks from corpus")
+    
+    # Check if we already have enough QA pairs from checkpoint
+    initial_matching_count = sum(1 for qa in successful_qa if is_qa_type_match(qa, QA_TYPE))
+    if target_qa_count and initial_matching_count >= target_qa_count:
+        print(f"\n✅ Target already reached from checkpoint: {initial_matching_count}/{target_qa_count} QA pairs")
+        generation_stats = {
+            'target_qa_pairs': target_qa_count,
+            'qa_type': QA_TYPE,
+            'total_chunks': len(chunk_data),
+            'chunks_processed': len(completed_chunk_ids),
+            'generated_qa_pairs': initial_matching_count,
+            'target_reached': True,
+            'corpus_exhausted': False,
+            'resumed_from_checkpoint': True
+        }
+        return successful_qa, failed_qa, chunks_with_context, generation_stats
     
     # Thread-safe counters
-    matching_qa_count = [0]  # QA pairs matching target type
-    chunks_processed = [0]   # Chunks actually processed
-    stop_flag = [False]      # Flag to signal early stop
+    matching_qa_count = [initial_matching_count]  # Start from checkpoint count
+    chunks_processed = [len(completed_chunk_ids)]  # Start from checkpoint count
+    stop_flag = [False]
     count_lock = threading.Lock()
     
     # Generation stats for reporting
@@ -1102,56 +1329,109 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str)
         'target_qa_pairs': target_qa_count,
         'qa_type': QA_TYPE,
         'total_chunks': len(chunk_data),
-        'chunks_processed': 0,
-        'generated_qa_pairs': 0,
+        'chunks_processed': len(completed_chunk_ids),
+        'generated_qa_pairs': initial_matching_count,
         'target_reached': False,
-        'corpus_exhausted': False
+        'corpus_exhausted': False,
+        'resumed_from_checkpoint': bool(completed_chunk_ids)
     }
     
+    if not pending_chunk_data:
+        print("No pending chunks to process")
+        generation_stats['corpus_exhausted'] = True
+        return successful_qa, failed_qa, chunks_with_context, generation_stats
+    
+    # Process chunks in batches to enable proper early stopping
+    # Batch size = 2x workers to keep workers busy while checking results
+    batch_size = max(QA_MAX_WORKERS * 2, 10)
+    chunk_idx_offset = 0
+    
     with ThreadPoolExecutor(max_workers=QA_MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(process_single_chunk_for_qa, cd, domain, expert_persona): i 
-            for i, cd in enumerate(chunk_data)
-        }
+        pbar = tqdm(total=len(pending_chunk_data), desc="Generating QA")
         
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Generating QA"):
-            # Check if we should stop
-            if stop_flag[0]:
-                # Don't process more results, but let pending futures complete
-                continue
-                
-            try:
-                chunk_successful, chunk_failed, chunk_context = future.result()
-                
-                with count_lock:
-                    chunks_processed[0] += 1
-                
-                # Filter successful QA by type and count
-                for qa in chunk_successful:
-                    if is_qa_type_match(qa, QA_TYPE):
-                        with count_lock:
-                            if target_qa_count is None or matching_qa_count[0] < target_qa_count:
-                                successful_qa.append(qa)
-                                matching_qa_count[0] += 1
-                                
-                                # Check if target reached
-                                if target_qa_count and matching_qa_count[0] >= target_qa_count:
-                                    print(f"\nTarget reached: {matching_qa_count[0]}/{target_qa_count} '{QA_TYPE}' QA pairs")
-                                    stop_flag[0] = True
-                                    generation_stats['target_reached'] = True
-                    else:
-                        # QA doesn't match type, add to failed
-                        qa['failure_reason'] = f"Does not match target type '{QA_TYPE}'"
-                        failed_qa.append(qa)
-                
-                failed_qa.extend(chunk_failed)
-                if chunk_context:
-                    chunks_with_context.append(chunk_context)
+        while chunk_idx_offset < len(pending_chunk_data) and not stop_flag[0]:
+            # Submit next batch of chunks
+            batch_end = min(chunk_idx_offset + batch_size, len(pending_chunk_data))
+            current_batch = pending_chunk_data[chunk_idx_offset:batch_end]
+            
+            futures = {
+                executor.submit(process_single_chunk_for_qa, cd, domain, expert_persona): cd[0]
+                for cd in current_batch
+            }
+            
+            for future in as_completed(futures):
+                # Check if we should stop (target already reached by another future)
+                if stop_flag[0]:
+                    # Cancel remaining futures in this batch
+                    for f in futures:
+                        f.cancel()
+                    break
                     
-            except Exception as e:
                 chunk_idx = futures[future]
-                logging.error(f"Error in parallel QA generation for chunk {chunk_idx}: {e}")
-                failed_qa.append({'chunk_id': chunk_idx, 'error': str(e)})
+                pbar.update(1)
+                
+                try:
+                    chunk_successful, chunk_failed, chunk_context = future.result()
+                    
+                    with count_lock:
+                        chunks_processed[0] += 1
+                    
+                    # Track successful/failed for this chunk
+                    chunk_success_list = []
+                    chunk_fail_list = []
+                    
+                    # Filter successful QA by type and count
+                    for qa in chunk_successful:
+                        if is_qa_type_match(qa, QA_TYPE):
+                            with count_lock:
+                                if target_qa_count is None or matching_qa_count[0] < target_qa_count:
+                                    successful_qa.append(qa)
+                                    chunk_success_list.append(qa)
+                                    matching_qa_count[0] += 1
+                                    
+                                    # Check if target reached
+                                    if target_qa_count and matching_qa_count[0] >= target_qa_count:
+                                        print(f"\nTarget reached: {matching_qa_count[0]}/{target_qa_count} '{QA_TYPE}' QA pairs")
+                                        stop_flag[0] = True
+                                        generation_stats['target_reached'] = True
+                        else:
+                            # QA doesn't match type, add to failed
+                            qa['failure_reason'] = f"Does not match target type '{QA_TYPE}'"
+                            failed_qa.append(qa)
+                            chunk_fail_list.append(qa)
+                    
+                    failed_qa.extend(chunk_failed)
+                    chunk_fail_list.extend(chunk_failed)
+                    
+                    if chunk_context:
+                        chunks_with_context.append(chunk_context)
+                    
+                    # Checkpoint after each chunk is processed
+                    if checkpoint_mgr:
+                        checkpoint_mgr.save_qa_result(
+                            chunk_id=chunk_idx,
+                            successful=chunk_success_list,
+                            failed=chunk_fail_list,
+                            chunk_with_context=chunk_context
+                        )
+                        
+                except Exception as e:
+                    logging.error(f"Error in parallel QA generation for chunk {chunk_idx}: {e}")
+                    error_entry = {'chunk_id': chunk_idx, 'error': str(e)}
+                    failed_qa.append(error_entry)
+                    
+                    # Checkpoint the error
+                    if checkpoint_mgr:
+                        checkpoint_mgr.save_qa_result(
+                            chunk_id=chunk_idx,
+                            successful=[],
+                            failed=[error_entry],
+                            chunk_with_context=None
+                        )
+            
+            chunk_idx_offset = batch_end
+        
+        pbar.close()
     
     # Update generation stats
     generation_stats['chunks_processed'] = chunks_processed[0]
@@ -1483,36 +1763,56 @@ def run_evaluation(qa_file: str, chunks_file: str, output_dir: str) -> dict:
 # ============================================================================
 # MAIN PIPELINE
 # ============================================================================
-def run_pipeline(skip_preflight: bool = False):
-    """Run the complete QA dataset generation pipeline."""
+def run_pipeline():
+    """Run the complete QA dataset generation pipeline.
+    
+    Note: Preflight checks are MANDATORY and always run.
+    The pipeline supports checkpointing for resume from interruption:
+    - Markdown conversion (per file)
+    - Chunking (per file)
+    - Context building (per chunk)
+    - QA generation (per chunk)
+    """
+    global _CHECKPOINT_MANAGER
+    
     setup_logging()
     
     # =========================================================================
     # PREFLIGHT CHECKS - Validate all services before expensive execution
+    # MANDATORY: Cannot be skipped - ensures system is properly configured
     # =========================================================================
-    if not skip_preflight:
-        print("\n" + "=" * 70)
-        print("RUNNING PREFLIGHT CHECKS...")
-        print("=" * 70)
-        
-        all_passed, results = run_preflight_checks(skip_expensive=False, quiet=False)
-        
-        if not all_passed:
-            print("\nSTOPPING: Preflight checks failed.")
-            print("   Fix the issues above before running the pipeline.")
-            print("   This prevents wasted LLM API calls on a misconfigured system.")
-            print("\n   To skip preflight checks (not recommended), use: --skip-preflight\n")
-            return
-        
-        print("\nAll preflight checks passed! Starting pipeline...\n")
-    else:
-        print("\nSkipping preflight checks (--skip-preflight flag set)\n")
+    print("\n" + "=" * 70)
+    print("RUNNING PREFLIGHT CHECKS (mandatory)")
+    print("=" * 70)
+    
+    all_passed, results = run_preflight_checks(skip_expensive=False, quiet=False)
+    
+    if not all_passed:
+        print("\nSTOPPING: Preflight checks failed.")
+        print("   Fix the issues above before running the pipeline.")
+        print("   This prevents wasted LLM API calls on a misconfigured system.\n")
+        return
+    
+    print("\nAll preflight checks passed! Starting pipeline...\n")
     
     # Initialize GPU lock for thread-safe access
     init_gpu_lock()
     
+    # =========================================================================
+    # INITIALIZE CHECKPOINT MANAGER AND LLM CACHE
+    # =========================================================================
+    _CHECKPOINT_MANAGER = CheckpointManager(OUTPUT_DIR)
+    _CHECKPOINT_MANAGER.print_status()
+    
+    # Initialize LLM response cache (saves after every call for crash resilience)
+    llm_cache = init_llm_cache(os.path.join(OUTPUT_DIR, ".cache"), enabled=True)
+    if llm_cache:
+        stats = llm_cache.get_stats()
+        if stats['cache_size'] > 0:
+            print(f"📦 LLM Cache: {stats['cache_size']} cached responses, {stats['hit_rate']} hit rate")
+    
     print("=" * 70)
-    print("QA DATASET GENERATION PIPELINE (FULLY PARALLELIZED)")
+    print("QA DATASET GENERATION PIPELINE (WITH CHECKPOINTING)")
     print("=" * 70)
     print(f"Configuration:")
     print(f"   - Backend: {BACKEND}")
@@ -1525,19 +1825,65 @@ def run_pipeline(skip_preflight: bool = False):
     print(f"   - Embed Batch Size: {EMBED_BATCH_SIZE}")
     print(f"   - Target QA Pairs: {QA_NUM_PAIRS if QA_NUM_PAIRS else 'unlimited'}")
     print(f"   - QA Type: {QA_TYPE}")
+    print(f"   - Max Depth: {MAX_DEPTH}")
     print(f"   - Run Evaluation: {RUN_EVALUATION}")
+    print(f"   - Checkpointing: ENABLED")
     print("=" * 70)
     
+    # =========================================================================
+    # CHECKPOINT DETECTION - Resume from existing state if available
+    # =========================================================================
+    print("\n📋 Checking for existing checkpoints...")
+    
+    # Check for existing chunks file in output directory
+    import glob
+    output_chunks_file = os.path.join(OUTPUT_DIR, "chunks.json")
+    markdown_dir = os.path.join(OUTPUT_DIR, "markdown")
+    
+    # Check for ANY existing embeddings (handles "auto" model name case)
+    existing_embeddings = glob.glob(os.path.join(OUTPUT_EMBEDDINGS_DIR, "*_index.faiss"))
+    
+    checkpoint_status = {
+        'has_chunks': os.path.exists(output_chunks_file) or (INPUT_CHUNKS_FILE and os.path.exists(INPUT_CHUNKS_FILE)),
+        'has_markdown': os.path.exists(markdown_dir) and len([f for f in os.listdir(markdown_dir) if os.path.isdir(os.path.join(markdown_dir, f))]) > 0 if os.path.exists(markdown_dir) else False,
+        'has_embeddings': len(existing_embeddings) > 0,
+    }
+    
+    if checkpoint_status['has_chunks']:
+        print("   ✅ Found existing chunks - will skip document conversion")
+    elif checkpoint_status['has_markdown']:
+        print("   ✅ Found existing markdown files - will skip PDF conversion, start from chunking")
+    else:
+        print("   ℹ️  No checkpoints found - starting from scratch")
+    
+    if checkpoint_status['has_embeddings']:
+        print("   ✅ Found existing embeddings - will reuse FAISS index")
+    
     # Step 1: Get chunks (from documents or pre-existing file)
+    chunks_file = None
+    chunks = None
+    
+    # Priority 1: Use explicitly provided chunks file
     if INPUT_CHUNKS_FILE and os.path.exists(INPUT_CHUNKS_FILE):
+        print(f"\n📂 Loading chunks from provided file: {INPUT_CHUNKS_FILE}")
         chunks = load_chunks(INPUT_CHUNKS_FILE)
         chunks_file = INPUT_CHUNKS_FILE
+    
+    # Priority 2: Use existing chunks in output directory
+    elif os.path.exists(output_chunks_file):
+        print(f"\n📂 Resuming from existing chunks: {output_chunks_file}")
+        chunks = load_chunks(output_chunks_file)
+        chunks_file = output_chunks_file
+    
+    # Priority 3: Convert documents (may resume from checkpoint)
     else:
-        chunks = convert_documents_to_chunks_parallel(INPUT_PDF_DIR, OUTPUT_CHUNKS)
+        chunks = convert_documents_to_chunks_parallel(INPUT_PDF_DIR, OUTPUT_CHUNKS, _CHECKPOINT_MANAGER)
         chunks_file = OUTPUT_CHUNKS
         if not chunks:
             print("No chunks generated. Exiting.")
             return
+    
+    print(f"   📊 Total chunks: {len(chunks)}")
     
     # Step 2: Embed ALL chunks & build unified FAISS index
     embeddings_dir, embeddings_array, chunk_ids = embed_all_chunks(chunks, chunks_file, OUTPUT_EMBEDDINGS_DIR)
@@ -1557,10 +1903,16 @@ def run_pipeline(skip_preflight: bool = False):
         random.shuffle(chunks)
         print(f"Shuffled {len(chunks)} chunks (seed={SHUFFLE_SEED})")
     
-    successful_qa, failed_qa, chunks_with_context, generation_stats = generate_qa_dataset_parallel(chunks, domain, expert_persona)
+    successful_qa, failed_qa, chunks_with_context, generation_stats = generate_qa_dataset_parallel(
+        chunks, domain, expert_persona, _CHECKPOINT_MANAGER
+    )
     
     # Save pre-deduplication results (always save, even if target not reached)
     save_qa_results(successful_qa, failed_qa, chunks_with_context)
+    
+    # Print final checkpoint status
+    if _CHECKPOINT_MANAGER:
+        _CHECKPOINT_MANAGER.print_status()
     
     # Save generation stats to output directory
     generation_stats_file = os.path.join(OUTPUT_DIR, "generation_stats.json")
@@ -1568,16 +1920,48 @@ def run_pipeline(skip_preflight: bool = False):
         json.dump(generation_stats, f, indent=2)
     print(f"Saved generation stats to {generation_stats_file}")
     
-    # Step 5: Deduplicate (PARALLEL)
-    if successful_qa:
+    # Step 5: Deduplicate (PARALLEL) - Optional
+    qa_file_for_eval = OUTPUT_QA_SUCCESSFUL  # Default to non-deduplicated
+    if RUN_DEDUPLICATION and successful_qa:
+        print("\n" + "=" * 70)
+        print("STEP 5: DEDUPLICATION (PARALLEL)")
+        print("=" * 70)
         deduplicate_qa_dataset_parallel(
             OUTPUT_QA_SUCCESSFUL, OUTPUT_QA_DEDUPLICATED,
             expert_persona=expert_persona, domain=domain
         )
+        qa_file_for_eval = OUTPUT_QA_DEDUPLICATED
+    elif not RUN_DEDUPLICATION:
+        print("\n" + "=" * 70)
+        print("STEP 5: DEDUPLICATION - SKIPPED (disabled in config)")
+        print("=" * 70)
+        print("💡 To enable deduplication, set 'deduplication.enabled: true' in config.yaml")
     
-    # Step 6: Compute dataset statistics
+    # Step 6: Generate Visualization for first multihop QA
     print("\n" + "=" * 70)
-    print("STEP 6: COMPUTING DATASET STATISTICS")
+    print("STEP 6: GENERATING MULTIHOP QA VISUALIZATION")
+    print("=" * 70)
+    if os.path.exists(qa_file_for_eval):
+        try:
+            from mirage.utils.visualize_multihop import generate_html_visualization
+            with open(qa_file_for_eval, 'r', encoding='utf-8') as f:
+                qa_data_viz = json.load(f)
+            if qa_data_viz:
+                viz_output = os.path.join(OUTPUT_DIR, "multihop_visualization.html")
+                generate_html_visualization(qa_data_viz[0], viz_output)
+                print(f"   Visualization for first QA pair: {viz_output}")
+            else:
+                print("   No QA pairs to visualize")
+        except ImportError:
+            print("   ⚠️ visualize_multihop.py not found, skipping visualization")
+        except Exception as e:
+            print(f"   ⚠️ Visualization failed: {e}")
+    else:
+        print("   No QA file found to visualize")
+    
+    # Step 7: Compute dataset statistics
+    print("\n" + "=" * 70)
+    print("STEP 7: COMPUTING DATASET STATISTICS")
     print("=" * 70)
     dataset_stats = compute_dataset_stats(
         output_dir=OUTPUT_DIR,
@@ -1586,18 +1970,18 @@ def run_pipeline(skip_preflight: bool = False):
     )
     print_dataset_stats(dataset_stats)
     
-    # Step 7: Evaluate (if enabled)
+    # Step 8: Evaluate (if enabled)
     eval_results = None
-    if RUN_EVALUATION and os.path.exists(OUTPUT_QA_DEDUPLICATED):
+    if RUN_EVALUATION and os.path.exists(qa_file_for_eval):
         print("\n" + "=" * 70)
-        print("STEP 7: COMPREHENSIVE EVALUATION")
+        print("STEP 8: COMPREHENSIVE EVALUATION")
         print("=" * 70)
-        eval_results = run_evaluation(OUTPUT_QA_DEDUPLICATED, chunks_file, OUTPUT_DIR)
+        eval_results = run_evaluation(qa_file_for_eval, chunks_file, OUTPUT_DIR)
         
         # Add dataset stats and QA category stats to evaluation results
         if eval_results:
             # Load QA data for category stats
-            with open(OUTPUT_QA_DEDUPLICATED, 'r', encoding='utf-8') as f:
+            with open(qa_file_for_eval, 'r', encoding='utf-8') as f:
                 qa_data_for_stats = json.load(f)
             
             qa_category_stats = compute_qa_category_stats(qa_data_for_stats)
@@ -1656,11 +2040,13 @@ def run_pipeline(skip_preflight: bool = False):
     print(f"   - Successful QA pairs (pre-dedup): {len(successful_qa)}")
     print(f"   - Failed QA pairs: {len(failed_qa)}")
     
-    if os.path.exists(OUTPUT_QA_DEDUPLICATED):
+    if RUN_DEDUPLICATION and os.path.exists(OUTPUT_QA_DEDUPLICATED):
         with open(OUTPUT_QA_DEDUPLICATED) as f:
             dedup_data = json.load(f)
             dedup_count = len(dedup_data)
         print(f"   - After deduplication: {dedup_count} QA pairs")
+    else:
+        print(f"   - Deduplication: SKIPPED")
     
     # Show dataset statistics
     print("\nDataset Statistics:")
@@ -1670,8 +2056,8 @@ def run_pipeline(skip_preflight: bool = False):
     print(f"   - Tokens: {dataset_stats['total_tokens']:,}")
     
     # Show QA category breakdown if available
-    if os.path.exists(OUTPUT_QA_DEDUPLICATED):
-        with open(OUTPUT_QA_DEDUPLICATED, 'r', encoding='utf-8') as f:
+    if os.path.exists(qa_file_for_eval):
+        with open(qa_file_for_eval, 'r', encoding='utf-8') as f:
             qa_for_cats = json.load(f)
         cat_stats = compute_qa_category_stats(qa_for_cats)
         print("\nQA Category Breakdown:")
@@ -1731,28 +2117,27 @@ def run_pipeline(skip_preflight: bool = False):
     if eval_results:
         print(f"   - Evaluation Report: {OUTPUT_EVAL_REPORT}")
     print("=" * 70)
+    
+    # Print LLM cache statistics
+    llm_cache = get_llm_cache()
+    if llm_cache:
+        llm_cache.print_stats()
+    
     print("\nPipeline completed!")
 
 
 # Backward compatibility alias
-def main(skip_preflight: bool = False):
+def main():
     """Backward compatibility wrapper for run_pipeline."""
-    return run_pipeline(skip_preflight)
+    return run_pipeline()
 
 
 if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="QA Dataset Generation Pipeline")
-    parser.add_argument("--skip-preflight", action="store_true",
-                       help="Skip preflight checks (not recommended)")
-    args = parser.parse_args()
-    
     # Use spawn for multiprocessing to avoid CUDA issues
     mp.set_start_method('spawn', force=True)
     
     try:
-        run_pipeline(skip_preflight=args.skip_preflight)
+        run_pipeline()
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
     except Exception as e:
