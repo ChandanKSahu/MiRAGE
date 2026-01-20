@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to MiRAGE! This document provides guidelines and instructions for contributing.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Development Setup
 
@@ -34,7 +34,7 @@ Thank you for your interest in contributing to MiRAGE! This document provides gu
    python preflight_check.py
    ```
 
-## 📋 Development Guidelines
+## Development Guidelines
 
 ### Code Style
 
@@ -88,7 +88,7 @@ pytest --cov=. --cov-report=html
 pytest tests/test_qa_generation.py
 ```
 
-## 🔧 Making Changes
+## Making Changes
 
 ### Branching Strategy
 
@@ -129,7 +129,7 @@ Use clear, descriptive commit messages:
 4. **Update the README** if you're adding new features
 5. **Fill out the PR template** completely
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 mirage-bench/
@@ -153,7 +153,7 @@ mirage-bench/
 └── run_ablation_study.py   # Ablation study runner
 ```
 
-## 🐛 Reporting Issues
+## Reporting Issues
 
 When reporting issues, please include:
 
@@ -164,7 +164,7 @@ When reporting issues, please include:
 5. **Error messages**: Full traceback if applicable
 6. **Configuration**: Relevant config.yaml settings (without API keys!)
 
-## 💡 Feature Requests
+## Feature Requests
 
 We welcome feature requests! Please:
 
@@ -173,10 +173,10 @@ We welcome feature requests! Please:
 3. Explain why existing features don't meet your needs
 4. If possible, suggest an implementation approach
 
-## 📄 License
+## License
 
 By contributing to MiRAGE, you agree that your contributions will be licensed under the Apache License 2.0.
 
-## 🙏 Thank You!
+## Thank You!
 
 We appreciate your contributions to making MiRAGE better for everyone!
