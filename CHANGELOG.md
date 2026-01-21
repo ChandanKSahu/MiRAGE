@@ -2,6 +2,27 @@
 
 All notable changes to MiRAGE will be documented in this file.
 
+## [1.2.0] - 2026-01-21
+
+### Added
+- New checkpoint/resume functionality (`src/mirage/utils/checkpoint.py`)
+- LLM response caching for improved performance (`src/mirage/utils/llm_cache.py`)
+- Multi-hop visualization tool (`src/mirage/utils/visualize_multihop.py`)
+- Pipeline visualization tool (`src/mirage/utils/visualize_pipeline.py`)
+- Interactive QA generation visualization (`assets/mirage_qa_gen.html`)
+
+### Changed
+- Major README.md improvements with better documentation
+- Enhanced prompts in `src/mirage/core/prompts.py`
+- Improved QA generator with better chunk handling
+- Updated context retrieval logic
+- Cleaned up emoji usage in query headers and section titles
+- Better "no relevant chunks" messaging
+
+### Fixed
+- Various bug fixes and stability improvements
+- Improved error handling across modules
+
 ## [1.0.6] - 2026-01-14
 
 ### Added
