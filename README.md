@@ -6,15 +6,25 @@
   <img src="https://img.shields.io/pypi/v/mirage-benchmark.svg" alt="PyPI">
 </p>
 
+**MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems.
+
+### Multiagent Architecture
+
 <p align="center">
   <img src="assets/mirage_framework.png" alt="MiRAGE Framework Architecture" width="100%">
 </p>
+
+### Sample QA Pair
 
 <p align="center">
   <img src="assets/ample question-answer pair generated.png" alt="Sample QA Pair Generated" width="100%">
 </p>
 
-**MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems.
+### Interactive Process Flow
+
+Explore the step-by-step multihop QA generation process:
+
+**[🔗 View Interactive Visualization](https://htmlpreview.github.io/?https://github.com/ChandanKSahu/MiRAGE/blob/main/assets/mirage_qa_gen.html)**
 
 ## Key Features
 
@@ -359,7 +369,7 @@ Use `print_token_stats()` or check the pipeline summary to monitor actual token 
 | `--backend` | `-b` | Backend: gemini, openai, ollama | gemini |
 | `--model` | | Model name | Auto |
 | `--config` | `-c` | Config file path | config.yaml |
-| `--num-qa-pairs` | | Target QA pairs to generate | 100 |
+| `--num-qa-pairs` | | Target QA pairs to generate | 10 |
 | `--max-workers` | | Parallel workers | 4 |
 | `--preflight` | | Run preflight checks only | - |
 | `--skip-preflight` | | Skip preflight checks | - |
@@ -401,11 +411,7 @@ output/my_dataset/
 
 ### Multihop QA Visualization
 
-Explore an interactive visualization of the multihop QA generation process, showing how context chunks are linked through keywords to generate complex questions:
-
-**[🔗 View Interactive Multihop QA Visualization](https://htmlpreview.github.io/?https://github.com/ChandanKSahu/MiRAGE/blob/main/assets/mirage_qa_gen.html)**
-
-The visualization demonstrates:
+See the [Interactive Process Flow](#interactive-process-flow) at the top of this page for a step-by-step visualization showing:
 - Context chunk retrieval and keyword extraction
 - Keyword chain relationships across chunks
 - Iterative retrieval depth progression
