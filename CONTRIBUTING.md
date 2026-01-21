@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to MiRAGE! This document provides guidelines and instructions for contributing.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Development Setup
 
@@ -34,7 +34,7 @@ Thank you for your interest in contributing to MiRAGE! This document provides gu
    python preflight_check.py
    ```
 
-## 📋 Development Guidelines
+## Development Guidelines
 
 ### Code Style
 
@@ -88,7 +88,7 @@ pytest --cov=. --cov-report=html
 pytest tests/test_qa_generation.py
 ```
 
-## 🔧 Making Changes
+## Making Changes
 
 ### Branching Strategy
 
@@ -129,31 +129,50 @@ Use clear, descriptive commit messages:
 4. **Update the README** if you're adding new features
 5. **Fill out the PR template** completely
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-mirage-bench/
-├── main.py                 # Main pipeline orchestration
-├── config_loader.py        # Configuration management
-├── preflight_check.py      # Service validation
-├── call_llm.py             # LLM/VLM API interface
-├── context_retrieved.py    # Multi-hop retrieval
-├── qa_gen_multi_hop.py     # QA generation & verification
-├── deduplication.py        # Hierarchical deduplication
-├── domain_expert.py        # Domain/expert extraction
-├── embed_models.py         # Embedding model interfaces
-├── prompt.py               # Prompt templates
-├── metrics.py              # Standard evaluation metrics
-├── metrics_optimized.py    # Optimized evaluation (3-5x faster)
-├── rerankers_multimodal.py # Multimodal reranking
-├── rerankers_text_qa_llm.py# LLM-based reranking
-├── pdf_to_md.py            # PDF to Markdown conversion
-├── md_to_semantic_chunks.py# Semantic chunking
-├── data_stats.py           # Dataset statistics
-└── run_ablation_study.py   # Ablation study runner
+MiRAGE/
+├── src/mirage/                    # Main package
+│   ├── __init__.py               # Package initialization
+│   ├── main.py                   # Pipeline orchestration
+│   ├── cli.py                    # Command-line interface
+│   ├── core/                     # Core functionality
+│   │   ├── config.py             # Configuration management
+│   │   ├── llm.py                # LLM/VLM API interfaces
+│   │   └── prompts.py            # Prompt templates
+│   ├── embeddings/               # Embedding models
+│   │   ├── models.py             # Embedding model selection
+│   │   ├── rerankers_multimodal.py  # VLM-based reranking
+│   │   └── rerankers_text.py     # Text-based reranking
+│   ├── pipeline/                 # Processing pipeline
+│   │   ├── pdf_processor.py      # PDF to Markdown conversion
+│   │   ├── chunker.py            # Semantic chunking
+│   │   ├── context.py            # Multi-hop context retrieval
+│   │   ├── qa_generator.py       # QA generation and verification
+│   │   ├── domain.py             # Domain/expert extraction
+│   │   └── deduplication.py      # QA deduplication
+│   ├── evaluation/               # Evaluation metrics
+│   │   ├── metrics.py            # Standard RAGAS metrics
+│   │   └── metrics_optimized.py  # Optimized metrics (faster)
+│   └── utils/                    # Utilities
+│       ├── preflight.py          # System checks
+│       ├── stats.py              # Dataset statistics
+│       └── ablation.py           # Ablation studies
+├── data/documents/               # Input documents folder
+├── output/                       # Generated results
+├── assets/                       # Documentation images
+├── config.yaml.example           # Example configuration
+├── run_mirage.py                 # Main entry point script
+├── setup.py                      # Package installation
+├── pyproject.toml                # Package configuration
+├── requirements.txt              # Dependencies
+├── README.md                     # This file
+├── CONTRIBUTING.md               # Contribution guidelines
+└── LICENSE                       # Apache 2.0 License
 ```
 
-## 🐛 Reporting Issues
+## Reporting Issues
 
 When reporting issues, please include:
 
@@ -164,7 +183,7 @@ When reporting issues, please include:
 5. **Error messages**: Full traceback if applicable
 6. **Configuration**: Relevant config.yaml settings (without API keys!)
 
-## 💡 Feature Requests
+## Feature Requests
 
 We welcome feature requests! Please:
 
@@ -173,10 +192,10 @@ We welcome feature requests! Please:
 3. Explain why existing features don't meet your needs
 4. If possible, suggest an implementation approach
 
-## 📄 License
+## License
 
 By contributing to MiRAGE, you agree that your contributions will be licensed under the Apache License 2.0.
 
-## 🙏 Thank You!
+## Thank You!
 
 We appreciate your contributions to making MiRAGE better for everyone!

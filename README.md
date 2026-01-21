@@ -379,6 +379,18 @@ Use `print_token_stats()` or check the pipeline summary to monitor actual token 
 | `--version` | | Show version | - |
 | `--help` | `-h` | Show help | - |
 
+### Multihop QA Visualization
+
+Explore an interactive visualization of the multihop QA generation process, showing how context chunks are linked through keywords to generate complex questions:
+
+**[🔗 View Interactive Multihop QA Visualization](https://htmlpreview.github.io/?https://github.com/ChandanKSahu/MiRAGE/blob/main/assets/mirage_qa_gen.html)**
+
+The visualization demonstrates:
+- Context chunk retrieval and keyword extraction
+- Keyword chain relationships across chunks
+- Iterative retrieval depth progression
+- Final question-answer generation with highlighted concepts
+
 ## Output Format
 
 ### Generated Files
@@ -408,6 +420,10 @@ output/my_dataset/
   "domain": "Finance"
 }
 ```
+
+<p align="center">
+  <img src="assets/ample question-answer pair generated.png" alt="Sample QA Pair" width="100%">
+</p>
 
 ### Multihop QA Visualization
 
@@ -471,7 +487,6 @@ For programmatic access, you can import and use MiRAGE modules directly:
 ```python
 # Import the main pipeline
 from mirage import run_pipeline
-
 # Or import specific components
 from mirage.core.llm import call_llm_simple, call_vlm_interweaved
 from mirage.pipeline.context import build_complete_context
