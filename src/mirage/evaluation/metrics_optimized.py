@@ -2122,6 +2122,258 @@ def run_optimized_pipeline_evaluation(
     return results
 
 
+# =============================================================================
+# Modular Pipeline Integration
+# =============================================================================
+
+from mirage.core.base import BaseModule
+
+
+class Evaluator(BaseModule):
+    """
+    Evaluation module for the modular pipeline.
+    
+    Computes comprehensive quality metrics on generated QA pairs.
+    
+    All hyperparameters from Table 2.2 (Evaluation Configuration):
+        sample_size: Sample size for expensive metrics (default: 50)
+        use_gemini: Prefer Gemini over OpenAI (default: True)
+        llm_model: LLM model for evaluation (default: gemini-2.0-flash)
+        embedding_model: Embedding model for diversity (default: models/text-embedding-004)
+        temperature: LLM temperature for determinism (default: 0)
+        
+    OpenAI fallback:
+        openai_model: Fallback LLM (default: gpt-4-turbo)
+        openai_embedding_model: Fallback embeddings (default: text-embedding-3-small)
+        
+    Metrics to run (Table 3.1):
+        run_faithfulness: Answer grounded in context (default: True)
+        run_answer_relevance: Answer addresses question (default: True)
+        run_context_precision: Relevant contexts retrieved (default: True)
+        run_context_recall: Context contains reference info (default: True)
+        run_multihop_reasoning: Multi-step reasoning quality (default: True)
+        run_visual_dependency: Needs image to answer (default: True)
+        run_context_necessity: Requires context to answer (default: True)
+        run_domain_coverage: Corpus coverage analysis (default: True)
+        run_semantic_diversity: Question diversity (default: True)
+        run_multimodal_faithfulness: Text+image grounding (default: True)
+        run_multimodal_answer_quality: Multimodal answer quality (default: True)
+        
+    Example:
+        evaluator = Evaluator(sample_size=50, use_gemini=True)
+        results = evaluator.process(qa_pairs)
+    """
+    
+    def __init__(
+        self,
+        enabled: bool = True,
+        sample_size: int = 50,
+        use_gemini: bool = True,
+        llm_model: str = 'gemini-2.0-flash',
+        embedding_model: str = 'models/text-embedding-004',
+        temperature: float = 0,
+        # OpenAI fallback
+        openai_model: str = 'gpt-4-turbo',
+        openai_embedding_model: str = 'text-embedding-3-small',
+        # Metrics to run
+        run_faithfulness: bool = True,
+        run_answer_relevance: bool = True,
+        run_context_precision: bool = True,
+        run_context_recall: bool = True,
+        run_multihop_reasoning: bool = True,
+        run_visual_dependency: bool = True,
+        run_context_necessity: bool = True,
+        run_domain_coverage: bool = True,
+        run_semantic_diversity: bool = True,
+        run_multimodal_faithfulness: bool = True,
+        run_multimodal_answer_quality: bool = True,
+        # Output
+        output_file: str = None,
+        **kwargs
+    ):
+        """Initialize Evaluator with all hyperparameters from Table 2.2."""
+        super().__init__(
+            enabled=enabled,
+            sample_size=sample_size,
+            use_gemini=use_gemini,
+            llm_model=llm_model,
+            embedding_model=embedding_model,
+            temperature=temperature,
+            openai_model=openai_model,
+            openai_embedding_model=openai_embedding_model,
+            run_faithfulness=run_faithfulness,
+            run_answer_relevance=run_answer_relevance,
+            run_context_precision=run_context_precision,
+            run_context_recall=run_context_recall,
+            run_multihop_reasoning=run_multihop_reasoning,
+            run_visual_dependency=run_visual_dependency,
+            run_context_necessity=run_context_necessity,
+            run_domain_coverage=run_domain_coverage,
+            run_semantic_diversity=run_semantic_diversity,
+            run_multimodal_faithfulness=run_multimodal_faithfulness,
+            run_multimodal_answer_quality=run_multimodal_answer_quality,
+            output_file=output_file,
+            **kwargs
+        )
+        
+        self._results = {}
+        self._evaluator = None
+    
+    def _get_evaluator(self, params: Dict):
+        """Get or create the internal evaluator."""
+        if self._evaluator is not None:
+            return self._evaluator
+        
+        # Try to initialize with Gemini or OpenAI
+        gemini_key = os.environ.get('GEMINI_API_KEY')
+        openai_key = os.environ.get('OPENAI_API_KEY')
+        
+        if params.get('use_gemini', True) and gemini_key and GEMINI_AVAILABLE:
+            self._evaluator = OptimizedMetricsEvaluator(
+                gemini_api_key=gemini_key,
+                use_gemini=True,
+                model_name=params.get('llm_model', 'gemini-2.0-flash'),
+                embedding_model=params.get('embedding_model', 'models/text-embedding-004'),
+            )
+        elif openai_key:
+            self._evaluator = OptimizedMetricsEvaluator(
+                openai_api_key=openai_key,
+                use_gemini=False,
+                model_name=params.get('openai_model', 'gpt-4-turbo'),
+                embedding_model=params.get('openai_embedding_model', 'text-embedding-3-small'),
+            )
+        else:
+            raise ValueError("No API key found. Set GEMINI_API_KEY or OPENAI_API_KEY environment variable.")
+        
+        return self._evaluator
+    
+    def process(self, X, corpus_chunks: List[Dict] = None, **kwargs):
+        """
+        Process QA pairs for evaluation.
+        
+        Args:
+            X: List of QA pair dicts with 'question', 'answer', 'context_chunks'
+            corpus_chunks: All corpus chunks (for domain coverage metric)
+            **kwargs: Runtime overrides for parameters
+        
+        Returns:
+            Dict with metric results and summary statistics
+        """
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        if not params.get('enabled', True):
+            self._logger.info("Evaluation disabled, skipping")
+            return {'skipped': True}
+        
+        qa_pairs = X
+        if not qa_pairs:
+            return {'error': 'No QA pairs to evaluate'}
+        
+        self._logger.info(f"Evaluating {len(qa_pairs)} QA pairs")
+        
+        # Get evaluator
+        evaluator = self._get_evaluator(params)
+        
+        # Determine which metrics to run
+        metrics_to_run = []
+        metric_flags = [
+            ('run_faithfulness', 'faithfulness'),
+            ('run_answer_relevance', 'answer_relevancy'),
+            ('run_context_precision', 'context_precision'),
+            ('run_context_recall', 'context_recall'),
+            ('run_multihop_reasoning', 'multihop_reasoning'),
+            ('run_visual_dependency', 'visual_dependency'),
+            ('run_context_necessity', 'context_necessity'),
+            ('run_domain_coverage', 'domain_coverage'),
+            ('run_semantic_diversity', 'semantic_diversity'),
+            ('run_multimodal_faithfulness', 'multimodal_faithfulness'),
+            ('run_multimodal_answer_quality', 'multimodal_answer_quality'),
+        ]
+        
+        for flag, metric in metric_flags:
+            if params.get(flag, True):
+                metrics_to_run.append(metric)
+        
+        # Sample if needed for expensive metrics
+        sample_size = params.get('sample_size', 50)
+        if sample_size and len(qa_pairs) > sample_size:
+            import random
+            qa_sample = random.sample(qa_pairs, sample_size)
+            self._logger.info(f"Sampled {sample_size} QA pairs for expensive metrics")
+        else:
+            qa_sample = qa_pairs
+        
+        # Run evaluation
+        results = {}
+        
+        # Basic metrics on full dataset (if not too expensive)
+        if 'faithfulness' in metrics_to_run:
+            results['faithfulness'] = evaluator.evaluate_batch_faithfulness(qa_pairs)
+        
+        if 'answer_relevancy' in metrics_to_run:
+            results['answer_relevancy'] = evaluator.evaluate_batch_answer_relevancy(qa_pairs)
+        
+        # Context metrics
+        if 'context_precision' in metrics_to_run:
+            results['context_precision'] = evaluator.evaluate_batch_context_precision(qa_pairs)
+        
+        # Expensive metrics on sample
+        if 'context_necessity' in metrics_to_run:
+            results['context_necessity'] = evaluator.evaluate_batch_context_necessity(qa_sample)
+        
+        if 'multihop_reasoning' in metrics_to_run:
+            results['multihop_reasoning'] = evaluator.evaluate_batch_multihop(qa_sample)
+        
+        if 'visual_dependency' in metrics_to_run:
+            results['visual_dependency'] = evaluator.evaluate_batch_visual_dependency(qa_sample)
+        
+        # Dataset-level metrics
+        if 'semantic_diversity' in metrics_to_run:
+            questions = [qa.get('question', '') for qa in qa_pairs]
+            results['semantic_diversity'] = evaluator.evaluate_semantic_diversity(questions)
+        
+        if 'domain_coverage' in metrics_to_run and corpus_chunks:
+            results['domain_coverage'] = evaluator.evaluate_domain_coverage(qa_pairs, corpus_chunks)
+        
+        # Compute summary statistics
+        summary = {}
+        for metric, metric_results in results.items():
+            if isinstance(metric_results, dict) and 'mean' in metric_results:
+                summary[f"{metric}_mean"] = metric_results['mean']
+            elif isinstance(metric_results, (int, float)):
+                summary[metric] = metric_results
+        
+        final_results = {
+            'metrics': results,
+            'summary': summary,
+            'config': {
+                'sample_size': sample_size,
+                'total_qa_pairs': len(qa_pairs),
+                'metrics_evaluated': metrics_to_run,
+            }
+        }
+        
+        # Save if output file specified
+        output_file = params.get('output_file')
+        if output_file:
+            with open(output_file, 'w') as f:
+                json.dump(convert_numpy(final_results), f, indent=2)
+            self._logger.info(f"Saved evaluation report to {output_file}")
+        
+        self._results = final_results
+        self._output = final_results
+        return final_results
+    
+    def get_results(self) -> Dict:
+        """Get evaluation results."""
+        return self._results
+    
+    def get_summary(self) -> Dict:
+        """Get summary statistics."""
+        return self._results.get('summary', {})
+
+
 # ============================================================================
 # MAIN (for standalone/CLI usage)
 # ============================================================================

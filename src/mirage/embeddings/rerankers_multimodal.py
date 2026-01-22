@@ -897,3 +897,225 @@ if __name__ == "__main__":
         traceback.print_exc()
     
     print("\n" + "=" * 60)
+
+
+# =============================================================================
+# Modular Pipeline Integration
+# =============================================================================
+
+from mirage.core.base import BaseModelModule
+
+
+class RerankerModule(BaseModelModule):
+    """
+    Unified reranker module for the modular pipeline.
+    
+    All hyperparameters from Table 2.9 (Reranking):
+        model: Reranker type (mono_vlm, mm_r5, florence2, vlm, text_embedding, gemini_vlm)
+        top_k: Number of top items to return (default: 5)
+        
+    Model-specific parameters:
+        MonoVLM (mono_vlm):
+            - mono_vlm_model: lightonai/MonoQwen2-VL-v0.1
+            - mono_vlm_processor: Qwen/Qwen2-VL-2B-Instruct
+            - torch_dtype: bfloat16 (CUDA) / float32 (CPU)
+        
+        MM-R5 (mm_r5):
+            - mm_r5_model: i2vec/MM-R5
+        
+        Florence-2 (florence2):
+            - florence2_model: microsoft/Florence-2-large
+            - florence2_max_new_tokens: 1024
+            - florence2_num_beams: 3
+            - do_sample: False
+            - use_cache: False
+        
+        TextEmbedding (text_embedding):
+            - text_embedding_model: BAAI/bge-large-en-v1.5
+        
+        VLMDescription:
+            - vlm_desc_text_model: sentence-transformers/all-MiniLM-L6-v2
+            - vlm_desc_max_tokens: 500
+            - vlm_desc_timeout: 180
+        
+    Example:
+        reranker = RerankerModule(model='mono_vlm', top_k=5)
+        results = reranker.process(chunks, query="What is machine learning?")
+    """
+    
+    # Mapping of model names to reranker classes
+    RERANKER_CLASSES = {
+        'vlm': VLMReranker,
+        'mono_vlm': MonoVLMReranker,
+        'text_embedding': TextEmbeddingReranker,
+        'gemini_vlm': GeminiVLMReranker,
+        'mm_r5': MMR5Reranker,
+        'florence2': Florence2Reranker,
+    }
+    
+    # Rerankers that work on chunks (text + optional images)
+    CHUNK_RERANKERS = {'vlm', 'mono_vlm', 'text_embedding', 'gemini_vlm'}
+    
+    # Rerankers that work on images only
+    IMAGE_RERANKERS = {'mm_r5', 'florence2'}
+    
+    def __init__(
+        self,
+        model: str = 'mono_vlm',
+        top_k: int = 5,
+        gpu_id: int = None,
+        # MonoVLM specific
+        mono_vlm_model: str = 'lightonai/MonoQwen2-VL-v0.1',
+        mono_vlm_processor: str = 'Qwen/Qwen2-VL-2B-Instruct',
+        # MM-R5 specific
+        mm_r5_model: str = 'i2vec/MM-R5',
+        # Florence-2 specific
+        florence2_model: str = 'microsoft/Florence-2-large',
+        florence2_max_new_tokens: int = 1024,
+        florence2_num_beams: int = 3,
+        # TextEmbedding specific
+        text_embedding_model: str = 'BAAI/bge-large-en-v1.5',
+        # VLMDescription specific
+        vlm_desc_text_model: str = 'sentence-transformers/all-MiniLM-L6-v2',
+        vlm_desc_max_tokens: int = 500,
+        vlm_desc_timeout: int = 180,
+        **kwargs
+    ):
+        """Initialize RerankerModule with all hyperparameters from Table 2.9."""
+        super().__init__(
+            model=model,
+            top_k=top_k,
+            gpu_id=gpu_id,
+            mono_vlm_model=mono_vlm_model,
+            mono_vlm_processor=mono_vlm_processor,
+            mm_r5_model=mm_r5_model,
+            florence2_model=florence2_model,
+            florence2_max_new_tokens=florence2_max_new_tokens,
+            florence2_num_beams=florence2_num_beams,
+            text_embedding_model=text_embedding_model,
+            vlm_desc_text_model=vlm_desc_text_model,
+            vlm_desc_max_tokens=vlm_desc_max_tokens,
+            vlm_desc_timeout=vlm_desc_timeout,
+            **kwargs
+        )
+        
+        self._reranker = None
+        self._last_results = []
+    
+    @property
+    def model_name(self) -> str:
+        return self._params.get('model', 'mono_vlm')
+    
+    @property
+    def top_k(self) -> int:
+        return self._params.get('top_k', 5)
+    
+    def _load_model(self):
+        """Lazy load the reranker model with configured parameters."""
+        if self._reranker is not None:
+            return self._reranker
+        
+        model = self.model_name
+        if model not in self.RERANKER_CLASSES:
+            raise ValueError(
+                f"Unknown reranker model: {model}. "
+                f"Available: {list(self.RERANKER_CLASSES.keys())}"
+            )
+        
+        reranker_class = self.RERANKER_CLASSES[model]
+        
+        # Build model-specific kwargs
+        model_kwargs = {}
+        if model == 'mono_vlm':
+            model_kwargs['model_name'] = self._params.get('mono_vlm_model')
+            model_kwargs['processor_name'] = self._params.get('mono_vlm_processor')
+        elif model == 'mm_r5':
+            model_kwargs['model_name'] = self._params.get('mm_r5_model')
+        elif model == 'florence2':
+            model_kwargs['model_name'] = self._params.get('florence2_model')
+        elif model == 'text_embedding':
+            model_kwargs['model_name'] = self._params.get('text_embedding_model')
+        
+        # Create reranker
+        try:
+            self._reranker = reranker_class(**model_kwargs)
+        except TypeError:
+            # Some rerankers don't accept kwargs
+            self._reranker = reranker_class()
+        
+        return self._reranker
+    
+    def process(self, X, query: str = None, **kwargs):
+        """
+        Process input - rerank based on query relevance.
+        
+        Args:
+            X: Input data - either:
+               - List of chunk dicts with 'text' and optional 'image_path' (for chunk rerankers)
+               - List of image paths (for image rerankers)
+            query: Query string for relevance scoring (required)
+            **kwargs: Runtime overrides for parameters
+        
+        Returns:
+            Reranked items (format depends on reranker type)
+        """
+        if query is None:
+            raise ValueError("query parameter is required for reranking")
+        
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        top_k = params.get('top_k', self.top_k)
+        
+        reranker = self._load_model()
+        model = self.model_name
+        
+        if model in self.CHUNK_RERANKERS:
+            # Chunk-based reranking
+            results = reranker.rerank(query, X, top_k=top_k)
+            self._last_results = results
+            self._output = results
+            return results
+        
+        elif model in self.IMAGE_RERANKERS:
+            # Image-based reranking
+            results = reranker.rerank(query, X, top_k=top_k)
+            self._last_results = results
+            self._output = results
+            return results
+        
+        else:
+            raise ValueError(f"Unknown reranker category for: {model}")
+    
+    def get_top_chunks(self) -> List[Dict]:
+        """Get the top-k reranked chunks (for chunk rerankers)."""
+        if self.model_name not in self.CHUNK_RERANKERS:
+            raise ValueError(f"get_top_chunks() only available for chunk rerankers")
+        return [chunk for _, _, chunk in self._last_results]
+    
+    def get_top_indices(self) -> List[int]:
+        """Get indices of top-k items."""
+        if self.model_name in self.CHUNK_RERANKERS:
+            return [idx for idx, _, _ in self._last_results]
+        else:
+            return self._last_results
+    
+    def get_scores(self) -> List[float]:
+        """Get relevance scores for top-k items (for chunk rerankers)."""
+        if self.model_name not in self.CHUNK_RERANKERS:
+            raise ValueError(f"get_scores() only available for chunk rerankers")
+        return [score for _, score, _ in self._last_results]
+    
+    @classmethod
+    def list_available_models(cls) -> List[str]:
+        """List available reranker models."""
+        return list(cls.RERANKER_CLASSES.keys())
+    
+    @classmethod
+    def get_chunk_rerankers(cls) -> List[str]:
+        """List rerankers that work on chunks (text + optional images)."""
+        return list(cls.CHUNK_RERANKERS)
+    
+    @classmethod
+    def get_image_rerankers(cls) -> List[str]:
+        """List rerankers that work on images only."""
+        return list(cls.IMAGE_RERANKERS)

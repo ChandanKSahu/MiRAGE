@@ -690,3 +690,215 @@ class BGEVLEmbed(BaseMultimodalEmbedder):
                 embedding = torch.nn.functional.normalize(embedding, dim=-1)
                 return embedding.to(device=self.device, dtype=torch.float32).flatten()
         return self.embed_text(text)
+
+
+# =============================================================================
+# MODULAR EMBEDDING MODULE (scikit-learn style)
+# =============================================================================
+
+from mirage.core.base import BaseModelModule
+
+
+class EmbeddingModule(BaseModelModule):
+    """
+    Embedding module for generating document/chunk embeddings.
+    
+    All hyperparameters from Table 2.11 (Embedding Models):
+        model: 'nomic', 'qwen3_vl', 'qwen2_vl', 'bge_vl', 'bge_m3', 'bge_large', 'minilm'
+        batch_size: Batch size for embedding (default: 16)
+        normalize: Whether to L2 normalize embeddings (default: True)
+        cache_embeddings: Cache model in memory (default: True)
+        gpu_id: GPU device ID to use
+        load_in_4bit: Enable 4-bit quantization (default: True, CUDA only)
+        bnb_4bit_compute_dtype: Compute dtype for quantization (default: bfloat16)
+        bnb_4bit_use_double_quant: Enable double quantization (default: True)
+        torch_dtype: Model data type (default: bfloat16)
+        attn_implementation: Attention implementation (default: flash_attention_2)
+        
+    Model details:
+        - nomic: nomic-ai/nomic-embed-multimodal-7b (multimodal, dim=128)
+        - qwen2_vl: Qwen/Qwen2-VL-7B-Instruct (multimodal, dim=1536)
+        - bge_vl: BAAI/BGE-VL-v1.5-zs (multimodal, dim=768)
+        - bge_m3: BAAI/bge-m3 (text-only, dim=1024)
+        - bge_large: BAAI/bge-large-en-v1.5 (text-only, dim=1024)
+        - minilm: sentence-transformers/all-MiniLM-L6-v2 (text-only, dim=384)
+        
+    Example:
+        embedder = EmbeddingModule(model='nomic', batch_size=16)
+        embeddings = embedder.process(chunks)
+    """
+    
+    # Model class mapping
+    MODEL_CLASSES = {
+        'nomic': NomicVLEmbed,
+        'qwen3_vl': Qwen3VLEmbed,
+        'qwen2_vl': Qwen2VLEmbed,
+        'bge_vl': BGEVLEmbed,
+        'vlm_description': VLMDescriptionEmbed,
+    }
+    
+    SENTENCE_TRANSFORMER_MODELS = {
+        'bge_m3': 'BAAI/bge-m3',
+        'bge_large': 'BAAI/bge-large-en-v1.5',
+        'minilm': 'sentence-transformers/all-MiniLM-L6-v2',
+    }
+    
+    MODEL_DIMENSIONS = {
+        'nomic': 128,
+        'qwen2_vl': 1536,
+        'qwen3_vl': 1536,
+        'bge_vl': 768,
+        'bge_m3': 1024,
+        'bge_large': 1024,
+        'minilm': 384,
+    }
+    
+    def __init__(self,
+                 model: str = 'nomic',
+                 batch_size: int = 16,
+                 normalize: bool = True,
+                 cache_embeddings: bool = True,
+                 gpu_id: int = None,
+                 load_in_4bit: bool = True,
+                 bnb_4bit_compute_dtype: str = 'bfloat16',
+                 bnb_4bit_use_double_quant: bool = True,
+                 torch_dtype: str = 'bfloat16',
+                 attn_implementation: str = 'flash_attention_2',
+                 **kwargs):
+        """Initialize embedding module with all hyperparameters from Table 2.11."""
+        super().__init__(
+            model=model,
+            cache_model=cache_embeddings,
+            gpu_id=gpu_id,
+            batch_size=batch_size,
+            normalize=normalize,
+            load_in_4bit=load_in_4bit,
+            bnb_4bit_compute_dtype=bnb_4bit_compute_dtype,
+            bnb_4bit_use_double_quant=bnb_4bit_use_double_quant,
+            torch_dtype=torch_dtype,
+            attn_implementation=attn_implementation,
+            **kwargs
+        )
+        self._embeddings = None
+        self._chunk_ids = None
+    
+    def _load_model(self):
+        """Load the embedding model with configured parameters."""
+        model_name = self.model_name
+        gpu_id = self._params.get('gpu_id')
+        gpus = [gpu_id] if gpu_id is not None else None
+        
+        if model_name in self.MODEL_CLASSES:
+            self._model = self.MODEL_CLASSES[model_name](gpus=gpus)
+        elif model_name in self.SENTENCE_TRANSFORMER_MODELS:
+            from sentence_transformers import SentenceTransformer
+            hf_name = self.SENTENCE_TRANSFORMER_MODELS[model_name]
+            self._model = SentenceTransformer(hf_name)
+        elif '/' in model_name:
+            # HuggingFace model path
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(model_name)
+        else:
+            # Try auto-detection
+            embedder, actual_model, is_multimodal = get_multimodal_embedder(gpus=gpus)
+            self._model = embedder
+    
+    def process(self, X, **kwargs) -> np.ndarray:
+        """
+        Process chunks to embeddings.
+        
+        Args:
+            X: List of chunk dicts (with 'content' key) or list of strings
+            **kwargs: Runtime overrides for parameters
+            
+        Returns:
+            numpy array of shape (n_samples, embedding_dim)
+        """
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        model = self.get_model()
+        batch_size = params.get('batch_size', 16)
+        normalize = params.get('normalize', True)
+        
+        # Extract text content
+        if isinstance(X, list) and len(X) > 0:
+            if isinstance(X[0], dict):
+                texts = [chunk.get('content', str(chunk)) for chunk in X]
+                self._chunk_ids = [chunk.get('chunk_id', str(i)) for i, chunk in enumerate(X)]
+            else:
+                texts = [str(x) for x in X]
+                self._chunk_ids = [str(i) for i in range(len(X))]
+        else:
+            texts = [str(X)]
+            self._chunk_ids = ['0']
+        
+        # Embed in batches
+        embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            
+            if hasattr(model, 'encode'):
+                # SentenceTransformer or compatible API
+                batch_emb = model.encode(batch, convert_to_numpy=True, show_progress_bar=False)
+            else:
+                # Custom embedder - encode one by one
+                batch_emb = []
+                for text in batch:
+                    emb = model.embed_text(text)
+                    if isinstance(emb, torch.Tensor):
+                        emb = emb.cpu().float().numpy()
+                    batch_emb.append(emb)
+                batch_emb = np.array(batch_emb)
+            
+            embeddings.append(batch_emb)
+        
+        # Stack all embeddings
+        self._embeddings = np.vstack(embeddings).astype('float32')
+        
+        # Normalize if requested (required for cosine similarity with FAISS IndexFlatIP)
+        if normalize:
+            import faiss
+            faiss.normalize_L2(self._embeddings)
+        
+        self._logger.info(f"Generated embeddings: shape {self._embeddings.shape}")
+        self._output = self._embeddings
+        return self._embeddings
+    
+    def get_embeddings(self) -> np.ndarray:
+        """Return cached embeddings."""
+        return self._embeddings
+    
+    def get_chunk_ids(self) -> List[str]:
+        """Return chunk IDs corresponding to embeddings."""
+        return self._chunk_ids
+    
+    def get_dimension(self) -> int:
+        """Get embedding dimension for current model."""
+        model_name = self.model_name
+        return self.MODEL_DIMENSIONS.get(model_name, 768)
+    
+    def build_index(self, embeddings: np.ndarray = None) -> 'faiss.Index':
+        """
+        Build FAISS index from embeddings.
+        
+        Args:
+            embeddings: Embeddings array (uses cached if None)
+            
+        Returns:
+            FAISS index (IndexFlatIP for cosine similarity)
+        """
+        import faiss
+        
+        if embeddings is None:
+            embeddings = self._embeddings
+        
+        if embeddings is None:
+            raise ValueError("No embeddings available. Call process() first.")
+        
+        dim = embeddings.shape[1]
+        index = faiss.IndexFlatIP(dim)  # Inner product for cosine sim (after L2 normalization)
+        index.add(embeddings)
+        
+        self._logger.info(f"Built FAISS index: {index.ntotal} vectors, dim={dim}")
+        return index

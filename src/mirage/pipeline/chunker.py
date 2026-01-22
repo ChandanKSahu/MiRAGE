@@ -521,6 +521,149 @@ def print_summary_from_file(chunks_file: Path):
         print_summary(chunks)
 
 
+# =============================================================================
+# MODULAR SEMANTIC CHUNKER (scikit-learn style)
+# =============================================================================
+
+from mirage.core.base import BaseModule
+
+
+class SemanticChunker(BaseModule):
+    """
+    Semantic chunking module for markdown to chunks conversion.
+    
+    All hyperparameters from Table 2.4 (Semantic Chunking):
+        method: 'semantic' (LLM-based), 'fixed', 'sentence'
+        window_size: Character window size for chunking (default: 20000, ~5000 tokens)
+        overlap_size: Character overlap between windows (default: 2000, ~500 tokens)
+        llm_model: LLM model for semantic chunking (default: gpt-oss-120b)
+        max_workers: Parallel workers for file processing (default: 4)
+        output_dir: Output directory for chunk files
+        
+    Example:
+        chunker = SemanticChunker(
+            window_size=20000,
+            overlap_size=2000,
+            llm_model='gpt-oss-120b'
+        )
+        chunks = chunker.process(markdown_files)
+    """
+    
+    def __init__(self,
+                 method: str = 'semantic',
+                 window_size: int = 20000,
+                 overlap_size: int = 2000,
+                 llm_model: str = 'gpt-oss-120b',
+                 max_workers: int = 4,
+                 output_dir: str = None,
+                 **kwargs):
+        """Initialize semantic chunker with all hyperparameters from Table 2.4."""
+        super().__init__(
+            method=method,
+            window_size=window_size,
+            overlap_size=overlap_size,
+            llm_model=llm_model,
+            max_workers=max_workers,
+            output_dir=output_dir,
+            **kwargs
+        )
+    
+    def process(self, X, **kwargs):
+        """
+        Process markdown files to semantic chunks.
+        
+        Args:
+            X: List of markdown file paths, or list of dicts with 'markdown_path' key,
+               or path to single markdown file/directory
+            **kwargs: Runtime overrides for parameters
+               
+        Returns:
+            List of chunk dicts with 'content', 'chunk_id', 'file_name', etc.
+        """
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        # Normalize input to list of paths
+        if isinstance(X, str):
+            md_files = get_markdown_files(X)
+        elif isinstance(X, list):
+            if len(X) > 0 and isinstance(X[0], dict):
+                # Output from DocumentProcessor
+                md_files = [Path(d['markdown_path']) for d in X if 'markdown_path' in d]
+            else:
+                md_files = [Path(p) for p in X]
+        else:
+            md_files = [Path(X)]
+        
+        if not md_files:
+            self._logger.warning("No markdown files to process")
+            return []
+        
+        # Determine output directory
+        output_dir = Path(params.get('output_dir') or 'output/chunks')
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Update global config for windowing
+        global WINDOW_SIZE, OVERLAP_SIZE
+        WINDOW_SIZE = params.get('window_size', 20000)
+        OVERLAP_SIZE = params.get('overlap_size', 2000)
+        
+        # Process files
+        max_workers = params.get('max_workers', 4)
+        all_chunks = []
+        
+        if len(md_files) == 1:
+            # Single file
+            result = process_single_file(md_files[0], output_dir)
+            if result['success']:
+                chunks_file = output_dir / f"{md_files[0].stem}_chunks.json"
+                if chunks_file.exists():
+                    with open(chunks_file, 'r', encoding='utf-8') as f:
+                        all_chunks = json.load(f)
+        else:
+            # Multiple files - parallel processing
+            results = process_files_parallel(md_files, output_dir, max_workers=max_workers)
+            
+            # Combine all chunks
+            for result in results:
+                if result['success']:
+                    file_stem = Path(result['file']).stem
+                    chunks_file = output_dir / file_stem / f"{file_stem}_chunks.json"
+                    if chunks_file.exists():
+                        with open(chunks_file, 'r', encoding='utf-8') as f:
+                            file_chunks = json.load(f)
+                            all_chunks.extend(file_chunks)
+        
+        # Renumber chunks globally
+        for i, chunk in enumerate(all_chunks, 1):
+            chunk['global_chunk_id'] = f"chunk_{i}"
+        
+        self._logger.info(f"Generated {len(all_chunks)} chunks from {len(md_files)} files")
+        self._output = all_chunks
+        return all_chunks
+    
+    def process_text(self, markdown_text: str, file_name: str = 'document') -> List[Dict]:
+        """
+        Process a single markdown text string to chunks.
+        
+        Args:
+            markdown_text: Raw markdown content
+            file_name: Name for the source file
+            
+        Returns:
+            List of chunk dicts
+        """
+        # Update global config
+        global WINDOW_SIZE, OVERLAP_SIZE
+        WINDOW_SIZE = self._params.get('window_size', 20000)
+        OVERLAP_SIZE = self._params.get('overlap_size', 2000)
+        
+        chunks, _ = chunk_with_windows(markdown_text)
+        chunks = renumber_chunks(chunks, file_name)
+        
+        return chunks
+
+
 if __name__ == "__main__":
     import argparse
     

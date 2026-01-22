@@ -511,6 +511,177 @@ def main(visualization: bool = False):
     # Visualization
     visualize_results(topic_model, docs, OUTPUT_DIR, embeddings=embeddings, generate_plots=visualization)
 
+# =============================================================================
+# Modular Pipeline Integration
+# =============================================================================
+
+from mirage.core.base import BaseModule
+
+
+class DomainExtractor(BaseModule):
+    """
+    Domain and expert persona extraction module for the modular pipeline.
+    
+    Uses BERTopic for topic modeling and LLM for domain/role extraction.
+    
+    All hyperparameters from Table 2.7 (Domain/Expert Extraction) and Table 2.13 (BERTopic):
+        use_multimodal_embeddings: Use multimodal embeddings (default: True)
+        embedding_model: Multimodal embedding model (default: nomic)
+        text_embedding_model: Text-only embedding model (default: BAAI/bge-m3)
+        llm_model: LLM for domain/expert extraction (default: gpt-oss-120b)
+        output_dir: Output directory for BERTopic analysis
+        
+    BERTopic parameters:
+        umap_n_neighbors: UMAP neighbors (default: 15)
+        umap_n_components: UMAP dimensions (default: 5)
+        umap_min_dist: UMAP min distance (default: 0.0)
+        umap_metric: Distance metric (default: cosine)
+        umap_random_state: Random seed (default: 42)
+        vectorizer_stop_words: Stop words (default: english)
+        vectorizer_min_df: Min document frequency (default: 2)
+        vectorizer_ngram_range: N-gram range (default: (1, 2))
+        mmr_diversity: MMR diversity (default: 0.5)
+        num_topics_to_show: Topics to display (default: 15)
+        
+    Example:
+        extractor = DomainExtractor(use_multimodal_embeddings=True)
+        result = extractor.process(chunks, embeddings=embeddings)
+        print(result['domain'], result['expert_role'])
+    """
+    
+    def __init__(
+        self,
+        use_multimodal_embeddings: bool = True,
+        embedding_model: str = 'nomic',
+        text_embedding_model: str = 'BAAI/bge-m3',
+        llm_model: str = 'gpt-oss-120b',
+        output_dir: str = None,
+        generate_visualizations: bool = False,
+        # BERTopic UMAP params
+        umap_n_neighbors: int = 15,
+        umap_n_components: int = 5,
+        umap_min_dist: float = 0.0,
+        umap_metric: str = 'cosine',
+        umap_random_state: int = 42,
+        # BERTopic CountVectorizer params
+        vectorizer_stop_words: str = 'english',
+        vectorizer_min_df: int = 2,
+        vectorizer_ngram_range: tuple = (1, 2),
+        # BERTopic MMR params
+        mmr_diversity: float = 0.5,
+        calculate_probabilities: bool = False,
+        num_topics_to_show: int = 15,
+        **kwargs
+    ):
+        """Initialize DomainExtractor with all hyperparameters from Tables 2.7 and 2.13."""
+        super().__init__(
+            use_multimodal_embeddings=use_multimodal_embeddings,
+            embedding_model=embedding_model,
+            text_embedding_model=text_embedding_model,
+            llm_model=llm_model,
+            output_dir=output_dir,
+            generate_visualizations=generate_visualizations,
+            umap_n_neighbors=umap_n_neighbors,
+            umap_n_components=umap_n_components,
+            umap_min_dist=umap_min_dist,
+            umap_metric=umap_metric,
+            umap_random_state=umap_random_state,
+            vectorizer_stop_words=vectorizer_stop_words,
+            vectorizer_min_df=vectorizer_min_df,
+            vectorizer_ngram_range=vectorizer_ngram_range,
+            mmr_diversity=mmr_diversity,
+            calculate_probabilities=calculate_probabilities,
+            num_topics_to_show=num_topics_to_show,
+            **kwargs
+        )
+        
+        # Results storage
+        self._topic_model = None
+        self._domain = None
+        self._expert_role = None
+        self._embeddings = None
+        self._docs = None
+    
+    def process(self, X, embeddings: Optional[Union[torch.Tensor, np.ndarray]] = None, 
+                chunk_ids: Optional[List[str]] = None, **kwargs):
+        """
+        Process chunks to extract domain and expert role.
+        
+        Args:
+            X: List of chunk dicts with 'content' and optional 'chunk_id' keys
+            embeddings: Pre-computed embeddings (optional, will compute if not provided)
+            chunk_ids: Chunk IDs matching embeddings (optional, for alignment)
+            **kwargs: Runtime overrides for parameters
+        
+        Returns:
+            Dict with 'domain', 'expert_role', 'topics', and 'topic_count'
+        """
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        chunks = X
+        
+        # Handle embeddings alignment if chunk_ids provided
+        if embeddings is not None and chunk_ids is not None:
+            chunks, valid_indices = align_chunks_with_embeddings(chunks, chunk_ids)
+            if len(valid_indices) != embeddings.shape[0]:
+                if isinstance(embeddings, torch.Tensor):
+                    embeddings = embeddings[valid_indices]
+                else:
+                    embeddings = embeddings[valid_indices]
+        
+        # Train BERTopic model
+        self._topic_model, self._docs, self._embeddings = get_domain_model(chunks, embeddings=embeddings)
+        
+        # Query LLM for domain and role
+        self._domain, self._expert_role = query_llm_for_domain(self._topic_model)
+        
+        # Save to environment variables for downstream use
+        save_domain_expert_to_env(self._domain, self._expert_role)
+        
+        # Generate visualizations if requested
+        output_dir = params.get('output_dir') or OUTPUT_DIR
+        if params.get('generate_visualizations') and output_dir:
+            visualize_results(
+                self._topic_model, 
+                self._docs, 
+                output_dir, 
+                embeddings=self._embeddings,
+                generate_plots=True
+            )
+        
+        # Get topic info for additional context
+        topic_info = self._topic_model.get_topic_info()
+        
+        result = {
+            'domain': self._domain,
+            'expert_role': self._expert_role,
+            'topics': topic_info.to_dict('records'),
+            'topic_count': len(topic_info) - 1,  # Exclude outlier topic -1
+        }
+        
+        self._output = result
+        return result
+    
+    def get_domain(self) -> str:
+        """Get the extracted domain."""
+        return self._domain
+    
+    def get_expert_role(self) -> str:
+        """Get the extracted expert role."""
+        return self._expert_role
+    
+    def get_topic_model(self) -> BERTopic:
+        """Get the trained BERTopic model."""
+        return self._topic_model
+    
+    def get_topics(self) -> pd.DataFrame:
+        """Get topic information as DataFrame."""
+        if self._topic_model is None:
+            return None
+        return self._topic_model.get_topic_info()
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Extract domain and expert role from semantic chunks")

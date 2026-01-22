@@ -28,7 +28,8 @@ Explore the step-by-step multihop QA generation process:
 
 ## Key Features
 
-- **Multi-hop Context Completion**: Iteratively expands incomplete chunks with relevant context.
+- **Modular Pipeline Architecture**: Configurable modules with simple `process()` interface - use individual components or chain them together
+- **Multi-hop Context Completion**: Iteratively expands incomplete chunks with relevant context
 - **Domain and Expert Role Detection**: Automatic domain identification using BERTopic + LLM
 - **Multi-stage QA Pipeline**: Generate, Select, Verify, Correct for quality assurance
 - **Multimodal Support**: Handles text, tables, figures, and images
@@ -36,6 +37,7 @@ Explore the step-by-step multihop QA generation process:
 - **Fully Parallelized**: Thread and process pools for maximum throughput
 - **Token Usage Tracking**: Automatic tracking of input/output tokens across all LLM calls
 - **Checkpoint & Resume**: Interrupt and resume long-running pipelines without losing progress
+- **Comprehensive Hyperparameters**: All documented parameters exposed with sensible defaults
 
 ## Table of Contents
 
@@ -47,6 +49,10 @@ Explore the step-by-step multihop QA generation process:
 - [Command Line Options](#command-line-options)
 - [Output Format](#output-format)
 - [Project Structure](#project-structure)
+- [Python API](#python-api)
+  - [Modular Pipeline](#modular-pipeline-recommended)
+  - [Using the Pipeline Class](#using-the-pipeline-class)
+  - [Module Reference](#module-reference)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -442,23 +448,24 @@ MiRAGE/
 │   ├── main.py                   # Pipeline orchestration
 │   ├── cli.py                    # Command-line interface
 │   ├── core/                     # Core functionality
-│   │   ├── config.py             # Configuration management
+│   │   ├── base.py               # Modular pipeline base classes (BaseModule, Pipeline)
+│   │   ├── config.py             # Configuration management + model registries
 │   │   ├── llm.py                # LLM/VLM API interfaces + token tracking
 │   │   └── prompts.py            # Prompt templates
 │   ├── embeddings/               # Embedding models
-│   │   ├── models.py             # Embedding model selection
-│   │   ├── rerankers_multimodal.py  # VLM-based reranking
+│   │   ├── models.py             # EmbeddingModule + multimodal embedders
+│   │   ├── rerankers_multimodal.py  # RerankerModule + VLM-based reranking
 │   │   └── rerankers_text.py     # Text-based reranking
-│   ├── pipeline/                 # Processing pipeline
-│   │   ├── pdf_processor.py      # PDF to Markdown conversion
-│   │   ├── chunker.py            # Semantic chunking
-│   │   ├── context.py            # Multi-hop context retrieval
-│   │   ├── qa_generator.py       # QA generation and verification
-│   │   ├── domain.py             # Domain/expert extraction
-│   │   └── deduplication.py      # QA deduplication
+│   ├── pipeline/                 # Processing pipeline modules
+│   │   ├── pdf_processor.py      # DocumentProcessor - PDF/HTML to Markdown
+│   │   ├── chunker.py            # SemanticChunker - Semantic chunking
+│   │   ├── context.py            # ContextBuilder - Multi-hop context retrieval
+│   │   ├── qa_generator.py       # QAGenerator - QA generation and verification
+│   │   ├── domain.py             # DomainExtractor - Domain/expert extraction
+│   │   └── deduplication.py      # Deduplicator - QA deduplication
 │   ├── evaluation/               # Evaluation metrics
 │   │   ├── metrics.py            # Standard RAGAS metrics
-│   │   └── metrics_optimized.py  # Optimized metrics (faster)
+│   │   └── metrics_optimized.py  # Evaluator - Optimized metrics module
 │   └── utils/                    # Utilities
 │       ├── preflight.py          # System checks
 │       ├── stats.py              # Dataset statistics
@@ -482,11 +489,137 @@ MiRAGE/
 
 ## Python API
 
-For programmatic access, you can import and use MiRAGE modules directly:
+MiRAGE provides a modular pipeline architecture where each component can be used independently or chained together.
+
+### Modular Pipeline (Recommended)
+
+Each module has a simple `process()` interface with comprehensive hyperparameters:
+
+```python
+from mirage.pipeline.pdf_processor import DocumentProcessor
+from mirage.pipeline.chunker import SemanticChunker
+from mirage.embeddings.models import EmbeddingModule
+from mirage.pipeline.domain import DomainExtractor
+from mirage.pipeline.context import ContextBuilder
+from mirage.pipeline.qa_generator import QAGenerator
+from mirage.pipeline.deduplication import Deduplicator
+from mirage.evaluation.metrics_optimized import Evaluator
+
+# Step 1: Process documents to markdown
+doc_processor = DocumentProcessor(
+    annotation_model='gemini-2.5-flash',
+    image_resolution_scale=2.0,
+    do_ocr=True,
+    cuda_device_id=0
+)
+markdown_files = doc_processor.process('data/documents/')
+
+# Step 2: Chunk markdown into semantic units
+chunker = SemanticChunker(
+    window_size=20000,      # ~5000 tokens
+    overlap_size=2000,      # ~500 tokens
+    llm_model='gpt-oss-120b'
+)
+chunks = chunker.process(markdown_files)
+
+# Step 3: Generate embeddings
+embedder = EmbeddingModule(
+    model='nomic',          # nomic, bge_m3, bge_large, minilm
+    batch_size=16,
+    normalize=True
+)
+embeddings = embedder.process(chunks)
+faiss_index = embedder.build_index()
+
+# Step 4: Extract domain and expert persona
+domain_extractor = DomainExtractor(
+    use_multimodal_embeddings=True,
+    llm_model='gpt-oss-120b'
+)
+domain_result = domain_extractor.process(chunks, embeddings=embeddings)
+print(f"Domain: {domain_result['domain']}")
+print(f"Expert: {domain_result['expert_role']}")
+
+# Step 5: Generate QA pairs
+qa_generator = QAGenerator(
+    vlm_model='qwen2.5vl:32b',
+    max_depth=3,
+    max_breadth=3,
+    enable_correction=True
+)
+qa_result = qa_generator.process(
+    chunks, 
+    domain=domain_result['domain'],
+    expert_persona=domain_result['expert_role']
+)
+print(f"Generated {len(qa_result['successful'])} QA pairs")
+
+# Step 6: Deduplicate
+deduplicator = Deduplicator(
+    question_similarity_threshold=0.75,
+    alpha=0.6  # weight for semantic vs chunk overlap
+)
+dedup_result = deduplicator.process(qa_result['successful'])
+print(f"After dedup: {len(dedup_result['deduplicated'])} QA pairs")
+
+# Step 7: Evaluate quality
+evaluator = Evaluator(
+    sample_size=50,
+    use_gemini=True,
+    run_faithfulness=True,
+    run_context_necessity=True
+)
+eval_result = evaluator.process(dedup_result['deduplicated'])
+print(f"Faithfulness: {eval_result['summary'].get('faithfulness_mean', 'N/A')}")
+```
+
+### Using the Pipeline Class
+
+Chain modules together for cleaner code:
+
+```python
+from mirage.core.base import Pipeline
+from mirage.pipeline.pdf_processor import DocumentProcessor
+from mirage.pipeline.chunker import SemanticChunker
+from mirage.embeddings.models import EmbeddingModule
+
+# Create pipeline
+pipeline = Pipeline([
+    ('docs', DocumentProcessor(annotation_model='gemini-2.5-flash')),
+    ('chunks', SemanticChunker(window_size=20000)),
+    ('embed', EmbeddingModule(model='nomic', batch_size=16)),
+])
+
+# Run entire pipeline
+result = pipeline.run('data/documents/')
+
+# Or run partial pipeline
+chunks = pipeline.run('data/documents/', stop_after='chunks')
+
+# Access intermediate outputs
+embeddings = pipeline.get_output('embed')
+```
+
+### Module Reference
+
+| Module | Key Parameters | Description |
+|--------|---------------|-------------|
+| `DocumentProcessor` | `annotation_model`, `image_resolution_scale`, `do_ocr` | PDF/HTML → Markdown |
+| `SemanticChunker` | `window_size`, `overlap_size`, `llm_model` | Semantic chunking |
+| `EmbeddingModule` | `model`, `batch_size`, `normalize`, `load_in_4bit` | Generate embeddings |
+| `RerankerModule` | `model`, `top_k` | Chunk reranking |
+| `DomainExtractor` | `use_multimodal_embeddings`, `llm_model` | Domain/expert extraction |
+| `ContextBuilder` | `max_depth`, `max_breadth`, `retrieval_k` | Multi-hop context |
+| `QAGenerator` | `vlm_model`, `enable_correction`, `max_depth` | QA generation |
+| `Deduplicator` | `question_similarity_threshold`, `alpha` | Remove duplicates |
+| `Evaluator` | `sample_size`, `use_gemini`, `run_*` flags | Quality metrics |
+
+### Legacy API (Still Supported)
 
 ```python
 # Import the main pipeline
 from mirage import run_pipeline
+
 # Or import specific components
 from mirage.core.llm import call_llm_simple, call_vlm_interweaved
 from mirage.pipeline.context import build_complete_context

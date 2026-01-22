@@ -490,5 +490,184 @@ def deduplicate_dataset():
     
     save_dataset(final_dataset, OUTPUT_FILE)
 
+
+# =============================================================================
+# Modular Pipeline Integration
+# =============================================================================
+
+from mirage.core.base import BaseModule
+
+
+class Deduplicator(BaseModule):
+    """
+    Deduplication module for the modular pipeline.
+    
+    Removes duplicate QA pairs using hierarchical clustering with semantic
+    similarity and chunk overlap scoring.
+    
+    All hyperparameters from Table 2.5 (Deduplication):
+        question_similarity_threshold: Clustering threshold for questions (default: 0.75)
+        answer_similarity_high: Exact duplicate threshold (default: 0.95)
+        answer_similarity_medium: Partial overlap threshold (default: 0.85)
+        answer_similarity_low: Related but distinct threshold (default: 0.70)
+        min_community_size: Minimum cluster size (default: 2)
+        alpha: Weight for semantic vs chunk overlap (default: 0.6)
+            Combined score = alpha * semantic_sim + (1-alpha) * jaccard_overlap
+        
+    Model parameters:
+        embedding_model: Model for semantic similarity (default: BAAI/bge-m3)
+        vlm_model: VLM for ranking/merging duplicates (default: qwen2.5vl:32b)
+        max_workers: Parallel workers for cluster processing (default: 4)
+        
+    Example:
+        dedup = Deduplicator(question_similarity_threshold=0.75, alpha=0.6)
+        results = dedup.process(qa_pairs)
+    """
+    
+    def __init__(
+        self,
+        question_similarity_threshold: float = 0.75,
+        answer_similarity_high: float = 0.95,
+        answer_similarity_medium: float = 0.85,
+        answer_similarity_low: float = 0.70,
+        min_community_size: int = 2,
+        alpha: float = 0.6,
+        embedding_model: str = 'BAAI/bge-m3',
+        vlm_model: str = 'qwen2.5vl:32b',
+        max_workers: int = 4,
+        output_file: str = None,
+        enabled: bool = True,
+        **kwargs
+    ):
+        """Initialize Deduplicator with all hyperparameters from Table 2.5."""
+        super().__init__(
+            question_similarity_threshold=question_similarity_threshold,
+            answer_similarity_high=answer_similarity_high,
+            answer_similarity_medium=answer_similarity_medium,
+            answer_similarity_low=answer_similarity_low,
+            min_community_size=min_community_size,
+            alpha=alpha,
+            embedding_model=embedding_model,
+            vlm_model=vlm_model,
+            max_workers=max_workers,
+            output_file=output_file,
+            enabled=enabled,
+            **kwargs
+        )
+        
+        self._embedding_model = None
+        self._statistics = {}
+    
+    def _get_embedding_model(self):
+        """Lazy-load embedding model."""
+        if self._embedding_model is None:
+            model_name = self._params.get('embedding_model', 'BAAI/bge-m3')
+            self._embedding_model = SentenceTransformer(model_name)
+            self._logger.info(f"Loaded embedding model: {model_name}")
+        return self._embedding_model
+    
+    def process(self, X, **kwargs):
+        """
+        Process QA pairs for deduplication.
+        
+        Args:
+            X: List of QA pair dicts with 'question', 'answer', 'chunk_id', etc.
+            **kwargs: Runtime overrides for parameters
+        
+        Returns:
+            Dict with 'deduplicated' list and 'statistics'
+        """
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        if not params.get('enabled', True):
+            self._logger.info("Deduplication disabled, returning input unchanged")
+            return {'deduplicated': X, 'statistics': {'skipped': True}}
+        
+        qa_pairs = X
+        if not qa_pairs:
+            return {'deduplicated': [], 'statistics': {'total': 0}}
+        
+        # Update global thresholds
+        global QUESTION_SIMILARITY_THRESHOLD, ANSWER_SIMILARITY_HIGH, ANSWER_SIMILARITY_MEDIUM
+        global ANSWER_SIMILARITY_LOW, MIN_COMMUNITY_SIZE, ALPHA
+        
+        QUESTION_SIMILARITY_THRESHOLD = params.get('question_similarity_threshold', 0.75)
+        ANSWER_SIMILARITY_HIGH = params.get('answer_similarity_high', 0.95)
+        ANSWER_SIMILARITY_MEDIUM = params.get('answer_similarity_medium', 0.85)
+        ANSWER_SIMILARITY_LOW = params.get('answer_similarity_low', 0.70)
+        MIN_COMMUNITY_SIZE = params.get('min_community_size', 2)
+        ALPHA = params.get('alpha', 0.6)
+        
+        self._logger.info(f"Starting deduplication of {len(qa_pairs)} QA pairs")
+        self._logger.info(f"Parameters: α={ALPHA}, question_threshold={QUESTION_SIMILARITY_THRESHOLD}")
+        
+        # Get embedding model
+        model = self._get_embedding_model()
+        
+        # Extract questions and compute embeddings
+        questions = [qa.get('question', '') for qa in qa_pairs]
+        question_embeddings = model.encode(questions, convert_to_tensor=True, show_progress_bar=True)
+        
+        # Compute similarity matrix and cluster
+        similarity_matrix = util.cos_sim(question_embeddings, question_embeddings)
+        clusters = cluster_qa_pairs(
+            qa_pairs, 
+            question_embeddings, 
+            similarity_matrix,
+            threshold=QUESTION_SIMILARITY_THRESHOLD,
+            min_community_size=MIN_COMMUNITY_SIZE
+        )
+        
+        # Process clusters
+        final_dataset = []
+        stats = {
+            'total': len(qa_pairs),
+            'singletons': 0,
+            'clusters_processed': 0,
+            'items_in_clusters': 0,
+            'exact_duplicates': 0,
+            'llm_merges': 0,
+            'reorganized_packs': 0,
+        }
+        
+        max_workers = params.get('max_workers', 4)
+        
+        for cluster_id, indices in tqdm(clusters.items(), desc="Processing clusters"):
+            if len(indices) == 1:
+                # Singleton
+                final_dataset.append(qa_pairs[indices[0]])
+                stats['singletons'] += 1
+            else:
+                # Cluster - process for deduplication
+                cluster_items = [qa_pairs[i] for i in indices]
+                stats['clusters_processed'] += 1
+                stats['items_in_clusters'] += len(cluster_items)
+                
+                # Process cluster to get deduplicated items
+                processed = process_cluster(cluster_items, model)
+                final_dataset.extend(processed)
+        
+        self._statistics = stats
+        
+        # Save if output file specified
+        output_file = params.get('output_file')
+        if output_file:
+            save_dataset(final_dataset, output_file)
+        
+        result = {
+            'deduplicated': final_dataset,
+            'statistics': stats,
+        }
+        
+        self._output = result
+        self._logger.info(f"Deduplication complete: {len(qa_pairs)} -> {len(final_dataset)} QA pairs")
+        return result
+    
+    def get_statistics(self) -> Dict:
+        """Get deduplication statistics."""
+        return self._statistics
+
+
 if __name__ == "__main__":
     deduplicate_dataset()

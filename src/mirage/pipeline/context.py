@@ -1026,6 +1026,221 @@ def build_complete_context(
     }
 
 
+# =============================================================================
+# Modular Pipeline Integration
+# =============================================================================
+
+from mirage.core.base import BaseModule
+
+
+class ContextBuilder(BaseModule):
+    """
+    Multi-hop context retrieval and completion module for the modular pipeline.
+    
+    Supports both simple retrieval (single query) and multi-hop context building
+    (iterative verification and expansion).
+    
+    All hyperparameters from Table 2.3 (Multi-hop Context Retrieval):
+        max_depth: Maximum number of iterative search hops (default: 2)
+        max_breadth: Maximum search strings per verification (default: 3)
+        chunks_per_search: Number of chunks retrieved per search string (default: 1)
+        chunk_addition_mode: "EXPLANATORY" or "RELATED" (default: RELATED)
+        max_consecutive_no_progress: Circuit breaker (default: 3)
+        
+    Simple retrieval parameters:
+        retrieval_method: "top_k" or "top_p" (default: top_k)
+        retrieval_k: Number of chunks for top-k retrieval (default: 20)
+        retrieval_p: Cumulative probability threshold for top-p (default: 0.9)
+        rerank_top_k: Number of chunks to rerank (default: 10)
+        context_size: Number of chunks in final context (default: 2)
+        
+    Model parameters:
+        embedding_model: Embedding model name (default: nomic)
+        reranker_model: Reranker model (default: mono_vlm)
+        vlm_model: VLM for verification (default: qwen2.5vl:32b)
+        
+    Example:
+        builder = ContextBuilder(max_depth=3, max_breadth=5)
+        result = builder.process(initial_chunk, mode='multihop')
+    """
+    
+    def __init__(
+        self,
+        # Multi-hop parameters (Table 2.3)
+        max_depth: int = 2,  # main.py default
+        max_breadth: int = 3,  # main.py default  
+        chunks_per_search: int = 1,  # main.py default
+        chunk_addition_mode: str = 'RELATED',
+        max_consecutive_no_progress: int = 3,
+        # Simple retrieval parameters
+        retrieval_method: str = 'top_k',
+        retrieval_k: int = 20,
+        retrieval_p: float = 0.9,
+        rerank_top_k: int = 10,
+        context_size: int = 2,
+        # Model selection
+        embedding_model: str = 'nomic',
+        reranker_model: str = 'mono_vlm',
+        vlm_model: str = 'qwen2.5vl:32b',
+        # Domain/expert for verification
+        domain: str = None,
+        expert_persona: str = None,
+        # Paths
+        embeddings_dir: str = None,
+        chunks_file: str = None,
+        image_base_dir: str = None,
+        # Logging
+        log_details: bool = True,
+        **kwargs
+    ):
+        """Initialize ContextBuilder with all hyperparameters from Table 2.3."""
+        super().__init__(
+            max_depth=max_depth,
+            max_breadth=max_breadth,
+            chunks_per_search=chunks_per_search,
+            chunk_addition_mode=chunk_addition_mode,
+            max_consecutive_no_progress=max_consecutive_no_progress,
+            retrieval_method=retrieval_method,
+            retrieval_k=retrieval_k,
+            retrieval_p=retrieval_p,
+            rerank_top_k=rerank_top_k,
+            context_size=context_size,
+            embedding_model=embedding_model,
+            reranker_model=reranker_model,
+            vlm_model=vlm_model,
+            domain=domain,
+            expert_persona=expert_persona,
+            embeddings_dir=embeddings_dir,
+            chunks_file=chunks_file,
+            image_base_dir=image_base_dir,
+            log_details=log_details,
+            **kwargs
+        )
+        
+        # Update global paths if provided
+        if embeddings_dir:
+            global EMBEDDINGS_DIR
+            EMBEDDINGS_DIR = embeddings_dir
+        if chunks_file:
+            global CHUNKS_FILE
+            CHUNKS_FILE = chunks_file
+        if image_base_dir:
+            global IMAGE_BASE_DIR
+            IMAGE_BASE_DIR = image_base_dir
+        
+        # Cache for results
+        self._faiss_index = None
+        self._chunk_ids = None
+    
+    def setup_index(self, faiss_index=None, chunk_ids=None):
+        """
+        Setup FAISS index and chunk IDs for retrieval.
+        
+        Args:
+            faiss_index: Pre-built FAISS index (optional)
+            chunk_ids: Chunk IDs matching embeddings
+        """
+        import sys
+        this_module = sys.modules[__name__]
+        
+        if faiss_index is not None:
+            this_module._cached_chunk_index = faiss_index
+            self._faiss_index = faiss_index
+        
+        if chunk_ids is not None:
+            this_module._cached_chunk_ids = chunk_ids
+            self._chunk_ids = chunk_ids
+    
+    def process(self, X, mode: str = 'multihop', query: str = None, **kwargs):
+        """
+        Process input - build context for chunks or retrieve for query.
+        
+        Args:
+            X: Input - either:
+               - Single chunk dict (for multi-hop context building)
+               - List of chunks (processes each)
+               - None (for simple retrieval with query)
+            mode: 'multihop' for iterative context building, 'simple' for single query retrieval
+            query: Query string (required for simple mode)
+            **kwargs: Runtime overrides for parameters
+        
+        Returns:
+            Context result dict (for single input) or list of results
+        """
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        if mode == 'simple':
+            if query is None:
+                raise ValueError("query parameter is required for simple retrieval mode")
+            
+            result = retrieve_and_rerank(
+                query=query,
+                model_name=params.get('embedding_model'),
+                retrieval_method=params.get('retrieval_method'),
+                retrieval_k=params.get('retrieval_k'),
+                retrieval_p=params.get('retrieval_p'),
+                rerank_top_k=params.get('rerank_top_k'),
+                context_size=params.get('context_size')
+            )
+            self._output = result
+            return result
+        
+        elif mode == 'multihop':
+            # Handle single chunk or list of chunks
+            if isinstance(X, dict):
+                # Single chunk
+                result = build_complete_context(
+                    initial_chunk=X,
+                    max_depth=params.get('max_depth'),
+                    max_breadth=params.get('max_breadth'),
+                    chunks_per_search=params.get('chunks_per_search'),
+                    expert_persona=params.get('expert_persona'),
+                    domain=params.get('domain'),
+                    log_details=params.get('log_details'),
+                    chunk_addition_mode=params.get('chunk_addition_mode')
+                )
+                self._output = result
+                return result
+            
+            elif isinstance(X, list):
+                # List of chunks - process each
+                results = []
+                for chunk in X:
+                    result = build_complete_context(
+                        initial_chunk=chunk,
+                        max_depth=params.get('max_depth'),
+                        max_breadth=params.get('max_breadth'),
+                        chunks_per_search=params.get('chunks_per_search'),
+                        expert_persona=params.get('expert_persona'),
+                        domain=params.get('domain'),
+                        log_details=params.get('log_details'),
+                        chunk_addition_mode=params.get('chunk_addition_mode')
+                    )
+                    results.append(result)
+                self._output = results
+                return results
+            
+            else:
+                raise ValueError(f"Invalid input type for multihop mode: {type(X)}")
+        
+        else:
+            raise ValueError(f"Unknown mode: {mode}. Use 'multihop' or 'simple'")
+    
+    def retrieve_simple(self, query: str) -> List[Tuple]:
+        """Convenience method for simple retrieval."""
+        return self.process(None, mode='simple', query=query)
+    
+    def build_multihop_context(self, chunk: Dict) -> Dict:
+        """Convenience method for multi-hop context building."""
+        return self.process(chunk, mode='multihop')
+    
+    def set_domain_expert(self, domain: str, expert_persona: str):
+        """Set domain and expert persona for verification."""
+        self._params['domain'] = domain
+        self._params['expert_persona'] = expert_persona
+
+
 # ============================================================================
 # MAIN
 # ============================================================================

@@ -554,6 +554,148 @@ def create_multi_format_converter(cuda_device_id=None):
     return doc_converter
 
 
+# =============================================================================
+# MODULAR DOCUMENT PROCESSOR
+# =============================================================================
+
+from mirage.core.base import BaseModule
+
+
+class DocumentProcessor(BaseModule):
+    """
+    Document processing module for PDF/HTML to Markdown conversion.
+    
+    All hyperparameters from Table 2.6 (PDF Processing):
+        input_format: 'auto', 'pdf', 'html'
+        image_resolution_scale: Image resolution scaling factor (default: 2.0)
+        annotation_model: VLM model for image/table descriptions (default: qwen2.5vl:32b)
+        num_threads: Number of CPU threads (default: 14)
+        cuda_device_id: GPU device ID (default: 1)
+        do_picture_classification: Enable picture classification (default: False)
+        do_picture_description: Enable VLM picture description (default: True)
+        do_ocr: Enable OCR for text extraction (default: True)
+        do_code_enrichment: Enable code block enrichment (default: True)
+        do_formula_enrichment: Enable formula enrichment (default: True)
+        do_table_structure: Enable table structure detection (default: True)
+        generate_table_images: Generate images for tables (default: True)
+        output_dir: Output directory for markdown files
+        
+    Example:
+        processor = DocumentProcessor(
+            annotation_model='gemini-2.5-flash',
+            image_resolution_scale=2.0,
+            cuda_device_id=0
+        )
+        results = processor.process('data/documents/')
+    """
+    
+    def __init__(self, 
+                 input_format: str = 'auto',
+                 image_resolution_scale: float = 2.0,
+                 annotation_model: str = 'qwen2.5vl:32b',
+                 num_threads: int = 14,
+                 cuda_device_id: int = 1,
+                 do_picture_classification: bool = False,
+                 do_picture_description: bool = True,
+                 do_ocr: bool = True,
+                 do_code_enrichment: bool = True,
+                 do_formula_enrichment: bool = True,
+                 do_table_structure: bool = True,
+                 generate_table_images: bool = True,
+                 output_dir: str = None,
+                 **kwargs):
+        """Initialize document processor with all hyperparameters from Table 2.6."""
+        super().__init__(
+            input_format=input_format,
+            image_resolution_scale=image_resolution_scale,
+            annotation_model=annotation_model,
+            num_threads=num_threads,
+            cuda_device_id=cuda_device_id,
+            do_picture_classification=do_picture_classification,
+            do_picture_description=do_picture_description,
+            do_ocr=do_ocr,
+            do_code_enrichment=do_code_enrichment,
+            do_formula_enrichment=do_formula_enrichment,
+            do_table_structure=do_table_structure,
+            generate_table_images=generate_table_images,
+            output_dir=output_dir,
+            **kwargs
+        )
+        self._converter = None
+    
+    def _get_converter(self):
+        """Lazy-load document converter with configured parameters."""
+        if self._converter is None:
+            cuda_id = self._params.get('cuda_device_id')
+            self._converter = create_multi_format_converter(cuda_device_id=cuda_id)
+        return self._converter
+    
+    def process(self, X, **kwargs):
+        """
+        Process input documents to markdown.
+        
+        Args:
+            X: Path to document file, directory, or zip file
+            **kwargs: Runtime overrides for parameters
+            
+        Returns:
+            List of dicts with 'name', 'markdown_path', 'output_dir', 'file_type', 'elapsed' keys
+        """
+        from pathlib import Path
+        
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        input_path = Path(X) if isinstance(X, str) else X
+        output_dir = Path(params.get('output_dir') or 'output/markdown')
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Collect input files
+        doc_files, temp_dir = collect_input_files(str(input_path))
+        
+        if not doc_files:
+            self._logger.warning(f"No document files found in {input_path}")
+            return []
+        
+        # Get converter
+        converter = self._get_converter()
+        
+        # Process documents
+        results = []
+        for doc_path in doc_files:
+            is_pdf = doc_path.suffix.lower() == '.pdf'
+            
+            try:
+                success, name, elapsed = process_single_document(
+                    doc_path, converter, output_dir, is_pdf=is_pdf
+                )
+                
+                if success:
+                    md_output_dir = output_dir / doc_path.stem
+                    md_file = md_output_dir / f"{doc_path.stem}_ref.md"
+                    
+                    results.append({
+                        'name': name,
+                        'markdown_path': str(md_file),
+                        'output_dir': str(md_output_dir),
+                        'file_type': 'pdf' if is_pdf else 'html',
+                        'elapsed': elapsed,
+                    })
+                else:
+                    self._logger.error(f"Failed to process: {doc_path.name}")
+                    
+            except Exception as e:
+                self._logger.error(f"Error processing {doc_path.name}: {e}")
+        
+        # Cleanup temp directory
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        self._logger.info(f"Processed {len(results)}/{len(doc_files)} documents")
+        self._output = results
+        return results
+
+
 if __name__ == "__main__":
     start_time = time.time()
     

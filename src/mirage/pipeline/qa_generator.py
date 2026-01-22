@@ -717,6 +717,244 @@ def correct_failed_qa(chunks: List[Dict], failed_qa_pairs: List[Dict],
     return corrected_pairs
 
 
+# =============================================================================
+# Modular Pipeline Integration
+# =============================================================================
+
+from mirage.core.base import BaseModule
+
+
+class QAGenerator(BaseModule):
+    """
+    QA generation module for the modular pipeline.
+    
+    Generates question-answer pairs from chunks using multi-hop context building,
+    then selects and verifies them.
+    
+    All hyperparameters from Table 2.8 (QA Generation):
+        vlm_model: VLM model for QA generation (default: qwen2.5vl:32b)
+        max_chunks: Limit chunks to process (default: None = all)
+        max_qa_pairs_per_chunk: Max QA pairs per chunk (default: 3)
+        enable_correction: Enable QA correction for failed pairs (default: True)
+        max_correction_attempts: Max correction attempts (default: 1)
+        
+    Context building parameters (Table 2.3):
+        max_depth: Multi-hop depth (default: 3)
+        max_breadth: Search breadth (default: 3)
+        chunks_per_search: Chunks per search (default: 2)
+        chunk_addition_mode: EXPLANATORY or RELATED (default: RELATED)
+        
+    Output files:
+        output_successful: qa_multihop_pass.json
+        output_failed: qa_multihop_fail.json
+        output_irrelevant: irrelevant_chunk.json
+        
+    Example:
+        generator = QAGenerator(vlm_model='gemini-2.5-flash')
+        results = generator.process(chunks, domain=domain, expert_persona=expert)
+    """
+    
+    def __init__(
+        self,
+        vlm_model: str = 'qwen2.5vl:32b',
+        max_chunks: int = None,
+        max_qa_pairs_per_chunk: int = 3,
+        enable_correction: bool = True,
+        max_correction_attempts: int = 1,
+        # Context building parameters
+        max_depth: int = 3,
+        max_breadth: int = 3,
+        chunks_per_search: int = 2,
+        chunk_addition_mode: str = 'RELATED',
+        # Output files
+        output_successful: str = 'qa_multihop_pass.json',
+        output_failed: str = 'qa_multihop_fail.json',
+        output_irrelevant: str = 'irrelevant_chunk.json',
+        output_dir: str = None,
+        **kwargs
+    ):
+        """Initialize QAGenerator with all hyperparameters from Table 2.8."""
+        super().__init__(
+            vlm_model=vlm_model,
+            max_chunks=max_chunks,
+            max_qa_pairs_per_chunk=max_qa_pairs_per_chunk,
+            enable_correction=enable_correction,
+            max_correction_attempts=max_correction_attempts,
+            max_depth=max_depth,
+            max_breadth=max_breadth,
+            chunks_per_search=chunks_per_search,
+            chunk_addition_mode=chunk_addition_mode,
+            output_successful=output_successful,
+            output_failed=output_failed,
+            output_irrelevant=output_irrelevant,
+            output_dir=output_dir,
+            **kwargs
+        )
+        
+        # Results storage
+        self._successful_qa = []
+        self._failed_qa = []
+        self._irrelevant_chunks = []
+    
+    def process(self, X, domain: str = None, expert_persona: str = None, **kwargs):
+        """
+        Process chunks to generate Q&A pairs.
+        
+        Args:
+            X: List of chunk dicts with 'content', 'chunk_id', etc.
+            domain: Domain for QA generation (required)
+            expert_persona: Expert persona for QA generation (required)
+            **kwargs: Runtime overrides for parameters
+        
+        Returns:
+            Dict with 'successful', 'failed', 'irrelevant' lists and statistics
+        """
+        # Apply runtime overrides
+        params = {**self._params, **kwargs}
+        
+        # Update global chunk addition mode
+        global CHUNK_ADDITION_MODE
+        CHUNK_ADDITION_MODE = params.get('chunk_addition_mode', 'RELATED')
+        
+        chunks = X
+        max_chunks = params.get('max_chunks')
+        if max_chunks:
+            chunks = chunks[:max_chunks]
+        
+        # Get or auto-detect domain/expert
+        if not domain or not expert_persona:
+            env_domain, env_persona = load_domain_expert_from_env()
+            domain = domain or env_domain
+            expert_persona = expert_persona or env_persona
+        
+        if not domain or not expert_persona:
+            raise ValueError("domain and expert_persona are required")
+        
+        # Reset results
+        self._successful_qa = []
+        self._failed_qa = []
+        self._irrelevant_chunks = []
+        
+        # Process each chunk
+        for i, chunk in enumerate(chunks, 1):
+            self._logger.info(f"Processing chunk {i}/{len(chunks)}")
+            
+            try:
+                # Extract chunk data
+                if isinstance(chunk, dict):
+                    chunk_content = chunk.get("content", str(chunk))
+                    chunk_id = chunk.get("chunk_id", str(i))
+                    chunk_data = chunk
+                else:
+                    chunk_content = str(chunk)
+                    chunk_id = str(i)
+                    chunk_data = {"content": chunk_content, "chunk_id": chunk_id}
+                
+                # Check relevance
+                is_relevant = check_chunk_relevance(chunk_content, expert_persona, domain)
+                
+                if not is_relevant:
+                    self._irrelevant_chunks.append({
+                        "chunk_id": chunk_id,
+                        "source_document": chunk_data.get("file_name", "unknown")
+                    })
+                    continue
+                
+                # Process chunk for QA
+                result = process_chunk_for_qa(chunk_data, expert_persona, domain)
+                
+                # Categorize results
+                context_chunks = result.get("context_chunks", [])
+                for qa_pair in result.get("selected_qa_pairs", []):
+                    if is_verification_successful(
+                        qa_pair.get("verification_result", ""),
+                        question=qa_pair.get("question", ""),
+                        answer=qa_pair.get("answer", ""),
+                        chunks=context_chunks
+                    ):
+                        self._successful_qa.append({
+                            "chunk_id": result["chunk_id"],
+                            "original_chunk": result["original_chunk"],
+                            "context_chunks": context_chunks,
+                            "context_status": result["context_status"],
+                            "expert_persona": expert_persona,
+                            "domain": domain,
+                            "question": qa_pair["question"],
+                            "answer": qa_pair["answer"],
+                            "verification_result": qa_pair["verification_result"]
+                        })
+                    else:
+                        self._failed_qa.append({
+                            "chunk_id": result["chunk_id"],
+                            "question": qa_pair["question"],
+                            "answer": qa_pair["answer"],
+                            "verification_result": qa_pair["verification_result"],
+                            "failure_reason": "Failed verification"
+                        })
+                
+                # Add rejected QA pairs to failed list
+                for qa_pair in result.get("rejected_qa_pairs", []):
+                    self._failed_qa.append({
+                        "chunk_id": result["chunk_id"],
+                        "question": qa_pair["question"],
+                        "answer": qa_pair["answer"],
+                        "failure_reason": "Rejected by selection agent"
+                    })
+                    
+            except Exception as e:
+                self._logger.error(f"Error processing chunk {i}: {e}")
+                self._failed_qa.append({
+                    "chunk_id": chunk_id if 'chunk_id' in dir() else str(i),
+                    "error": str(e)
+                })
+        
+        result = {
+            'successful': self._successful_qa,
+            'failed': self._failed_qa,
+            'irrelevant': self._irrelevant_chunks,
+            'statistics': {
+                'total_chunks': len(chunks),
+                'relevant_chunks': len(chunks) - len(self._irrelevant_chunks),
+                'irrelevant_chunks': len(self._irrelevant_chunks),
+                'successful_qa': len(self._successful_qa),
+                'failed_qa': len(self._failed_qa),
+            }
+        }
+        
+        # Save to files if output_dir provided
+        output_dir = params.get('output_dir')
+        if output_dir:
+            import os
+            os.makedirs(output_dir, exist_ok=True)
+            
+            if self._successful_qa:
+                with open(os.path.join(output_dir, params.get('output_successful')), 'w') as f:
+                    json.dump(self._successful_qa, f, indent=2, ensure_ascii=False)
+            
+            if self._failed_qa:
+                with open(os.path.join(output_dir, params.get('output_failed')), 'w') as f:
+                    json.dump(self._failed_qa, f, indent=2, ensure_ascii=False)
+            
+            if self._irrelevant_chunks:
+                with open(os.path.join(output_dir, params.get('output_irrelevant')), 'w') as f:
+                    json.dump(self._irrelevant_chunks, f, indent=2, ensure_ascii=False)
+        
+        self._output = result
+        return result
+    
+    def get_successful_qa(self) -> List[Dict]:
+        """Get successful QA pairs."""
+        return self._successful_qa
+    
+    def get_failed_qa(self) -> List[Dict]:
+        """Get failed QA pairs."""
+        return self._failed_qa
+    
+    def get_irrelevant_chunks(self) -> List[Dict]:
+        """Get irrelevant chunks."""
+        return self._irrelevant_chunks
+
+
 if __name__ == "__main__":
     setup_logging()
     
