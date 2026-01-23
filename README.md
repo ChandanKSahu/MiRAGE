@@ -599,11 +599,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 ## Citation
 
 ```bibtex
-@software{mirage2024,
-  title = {MiRAGE: A Multiagent Framework for Generating Multimodal Multihop Question-Answer Dataset for RAG Evaluation},
-  author = {MiRAGE Authors},
-  year = {2026},
-  url = {https://github.com/ChandanKSahu/MiRAGE}
+@misc{sahu2026miragemultiagentframeworkgenerating,
+      title={MiRAGE: A Multiagent Framework for Generating Multimodal Multihop Question-Answer Dataset for RAG Evaluation}, 
+      author={Chandan Kumar Sahu and Premith Kumar Chilukuri and Matthew Hetrich},
+      year={2026},
+      eprint={2601.15487},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2601.15487}, 
 }
 ```
 
