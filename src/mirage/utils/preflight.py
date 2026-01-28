@@ -285,11 +285,18 @@ def check_reranker() -> CheckResult:
         
         if default_reranker == "gemini_vlm":
             # Gemini VLM reranker uses API, already tested in VLM check
+            # Get actual model name from config
+            try:
+                from mirage.core.llm import VLM_MODEL_NAME, _initialize_config
+                _initialize_config()
+                model_name = VLM_MODEL_NAME if VLM_MODEL_NAME else "gemini-2.0-flash"
+            except:
+                model_name = "gemini-2.0-flash"
             return CheckResult(
                 name="Reranker",
                 status=CheckStatus.PASS,
                 message="Using Gemini VLM reranker (API-based)",
-                details={"type": "gemini_vlm", "model": "gemini-2.5-flash"}
+                details={"type": "gemini_vlm", "model": model_name}
             )
         elif default_reranker in ["monovlm", "MonoVLM"]:
             from mirage.embeddings.rerankers_multimodal import MonoVLMReranker

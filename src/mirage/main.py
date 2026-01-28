@@ -283,7 +283,14 @@ def _create_reranker(reranker_type: str):
     
     if reranker_type_lower == "gemini_vlm":
         from mirage.embeddings.rerankers_multimodal import GeminiVLMReranker
-        return GeminiVLMReranker()
+        # Use VLM_MODEL_NAME from config to match LLM/VLM models
+        try:
+            from mirage.core.llm import VLM_MODEL_NAME, _initialize_config
+            _initialize_config()  # Ensure config is initialized
+            model_name = VLM_MODEL_NAME if VLM_MODEL_NAME else "gemini-2.0-flash"
+        except:
+            model_name = "gemini-2.0-flash"  # Fallback to default
+        return GeminiVLMReranker(model_name=model_name)
     elif reranker_type_lower in ["monovlm", "mono_vlm"]:
         from mirage.embeddings.rerankers_multimodal import MonoVLMReranker
         return MonoVLMReranker()
@@ -298,7 +305,14 @@ def _create_reranker(reranker_type: str):
         has_gemini_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
         if has_gemini_key:
             from mirage.embeddings.rerankers_multimodal import GeminiVLMReranker
-            return GeminiVLMReranker()
+            # Use VLM_MODEL_NAME from config to match LLM/VLM models
+            try:
+                from mirage.core.llm import VLM_MODEL_NAME, _initialize_config
+                _initialize_config()  # Ensure config is initialized
+                model_name = VLM_MODEL_NAME if VLM_MODEL_NAME else "gemini-2.0-flash"
+            except:
+                model_name = "gemini-2.0-flash"  # Fallback to default
+            return GeminiVLMReranker(model_name=model_name)
         else:
             from mirage.embeddings.rerankers_multimodal import MonoVLMReranker
             return MonoVLMReranker()
