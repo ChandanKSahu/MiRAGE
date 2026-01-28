@@ -70,45 +70,16 @@ def _resolve_local_model_path(model_name: str) -> str:
                 latest_snapshot = os.path.join(snapshots_dir, sorted(snapshots)[-1])
                 # Verify model files exist (not just config.json)
                 config_file = os.path.join(latest_snapshot, "config.json")
-                
-                # Check for model index file to determine required shards
-                index_file = os.path.join(latest_snapshot, "model.safetensors.index.json")
-                has_all_shards = False
-                
-                if os.path.exists(index_file):
-                    # Check if all shards referenced in index exist
-                    try:
-                        import json
-                        with open(index_file, 'r') as f:
-                            index_data = json.load(f)
-                        weight_map = index_data.get('weight_map', {})
-                        # Get unique shard filenames from weight_map
-                        required_shards = set()
-                        for shard_path in weight_map.values():
-                            # Extract shard filename (e.g., "model-00001-of-00004.safetensors")
-                            shard_name = os.path.basename(shard_path) if '/' in shard_path else shard_path
-                            required_shards.add(shard_name)
-                        
-                        # Check if all required shards exist (handle symlinks)
-                        existing_files = set(os.listdir(latest_snapshot))
-                        has_all_shards = all(shard in existing_files for shard in required_shards)
-                    except Exception:
-                        # Fallback: check for at least one model file
-                        has_all_shards = any(
-                            f.startswith("model") and (f.endswith(".safetensors") or f.endswith(".bin"))
-                            for f in os.listdir(latest_snapshot)
-                        )
-                else:
-                    # No index file, check for single model file or multiple shards
-                    model_files = [f for f in os.listdir(latest_snapshot) 
-                                 if f.startswith("model") and (f.endswith(".safetensors") or f.endswith(".bin"))]
-                    has_all_shards = len(model_files) > 0
-                
-                if os.path.exists(config_file) and has_all_shards:
+                # Check for at least one model file (safetensors or bin)
+                has_model_files = any(
+                    f.startswith("model") and (f.endswith(".safetensors") or f.endswith(".bin"))
+                    for f in os.listdir(latest_snapshot) if os.path.isfile(os.path.join(latest_snapshot, f))
+                )
+                if os.path.exists(config_file) and has_model_files:
                     print(f"📂 Found cached model at: {latest_snapshot}")
                     return latest_snapshot
-                elif os.path.exists(config_file) and not has_all_shards:
-                    print(f"⚠️  Cached model directory found but model shards incomplete, will re-download: {latest_snapshot}")
+                elif os.path.exists(config_file) and not has_model_files:
+                    print(f"⚠️  Cached model directory found but model files missing, will re-download: {latest_snapshot}")
     
     # No local model found, will download from HuggingFace
     print(f"⬇️  Model not found locally, will download from HuggingFace: {model_name}")
@@ -361,11 +332,7 @@ class Qwen3VLEmbed(BaseMultimodalEmbedder):
         # Check for local model first
         resolved_path = _resolve_local_model_path(model_name)
         
-        # Only print loading message if we have a valid cached path
-        if resolved_path != model_name:
-            print(f"Loading Qwen3-VL from cache: {resolved_path}")
-        else:
-            print(f"Loading Qwen3-VL: {model_name} (downloading from HuggingFace)")
+        print(f"Loading Qwen3-VL: {resolved_path}")
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         

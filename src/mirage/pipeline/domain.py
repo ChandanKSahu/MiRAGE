@@ -41,13 +41,14 @@ def load_domain_expert_from_env() -> Tuple[str, str]:
         return domain, expert_persona
     return None, None
 
-# Configuration (override via config.yaml)
-DEFAULT_CHUNKS_FILE = "output/results/chunks.json"
-OUTPUT_DIR = "output/domain_analysis"
-# Directory containing images referenced in chunks (update as needed)
-IMAGE_BASE_DIR = "output/results/markdown" 
+# Configuration - use environment variable if set (from CLI --output), else fall back to defaults
+_BASE_OUTPUT_DIR = os.environ.get("MIRAGE_OUTPUT_DIR", "output")
+DEFAULT_CHUNKS_FILE = os.path.join(_BASE_OUTPUT_DIR, "chunks.json")
+OUTPUT_DIR = os.path.join(_BASE_OUTPUT_DIR, "domain_analysis")
+# Directory containing images referenced in chunks
+IMAGE_BASE_DIR = os.path.join(_BASE_OUTPUT_DIR, "markdown")
 # Directory containing pre-computed embeddings
-EMBEDDINGS_DIR = "output/results/embeddings"
+EMBEDDINGS_DIR = os.path.join(_BASE_OUTPUT_DIR, "embeddings")
 
 # Embedding Mode Configuration
 # Set to False to use BGE-M3 (Text Only), True to use NomicVLEmbed (Multimodal)
@@ -213,21 +214,56 @@ def get_domain_model(chunks: List[Dict], embeddings: Optional[Union[torch.Tensor
             print("✅ Using pre-computed embeddings")
     else:
         if USE_MULTIMODAL_EMBEDDINGS:
-            print("   Mode: Multimodal (NomicVLEmbed) - COMPUTING ON THE FLY")
-            # Try to use cached embedder from main.py if available
+            # Use the same embedding model as the main pipeline
+            embedding_model = os.environ.get("MIRAGE_EMBEDDING_MODEL", "auto")
+            print(f"   Mode: Multimodal ({embedding_model}) - COMPUTING ON THE FLY")
+            
+            # Get GPU configuration from main pipeline or config
+            gpus = None
             try:
                 import sys
-                if 'main' in sys.modules and hasattr(sys.modules['main'], '_MODEL_CACHE'):
-                    cache = sys.modules['main']._MODEL_CACHE
-                    if cache.get('nomic_embedder') is not None:
-                        embedder = cache['nomic_embedder']
-                        print("   Using cached NomicVLEmbed model (no reload needed)")
-                    else:
-                        embedder = NomicVLEmbed()
-                else:
-                    embedder = NomicVLEmbed()
+                if 'mirage.main' in sys.modules:
+                    main_module = sys.modules['mirage.main']
+                    if hasattr(main_module, 'EMBEDDING_GPUS'):
+                        gpus = main_module.EMBEDDING_GPUS
+                if gpus is None:
+                    from mirage.core.config import get_embedding_config
+                    embed_config = get_embedding_config()
+                    gpus = embed_config.get('gpus', None)
             except:
-                embedder = NomicVLEmbed()
+                pass
+            
+            # Try to use cached embedder from main.py if available
+            try:
+                if 'mirage.main' in sys.modules:
+                    main_module = sys.modules['mirage.main']
+                    if hasattr(main_module, '_MODEL_CACHE'):
+                        cache = main_module._MODEL_CACHE
+                        # Check for any cached embedder (qwen3_vl, nomic, etc.)
+                        for key in ['multimodal_embedder', 'qwen3_vl_embedder', 'nomic_embedder']:
+                            if cache.get(key) is not None:
+                                embedder = cache[key]
+                                print(f"   Using cached embedder from main pipeline (no reload needed)")
+                                break
+                        else:
+                            # No cached embedder found, use get_multimodal_embedder for consistency
+                            from mirage.embeddings.models import get_multimodal_embedder
+                            embedder, actual_model, _ = get_multimodal_embedder(gpus=gpus)
+                            print(f"   Loaded {actual_model} embedder on GPU(s): {gpus}")
+                    else:
+                        from mirage.embeddings.models import get_multimodal_embedder
+                        embedder, actual_model, _ = get_multimodal_embedder(gpus=gpus)
+                        print(f"   Loaded {actual_model} embedder on GPU(s): {gpus}")
+                else:
+                    from mirage.embeddings.models import get_multimodal_embedder
+                    embedder, actual_model, _ = get_multimodal_embedder(gpus=gpus)
+                    print(f"   Loaded {actual_model} embedder on GPU(s): {gpus}")
+            except Exception as e:
+                print(f"   Warning: Could not get cached embedder ({e}), loading fresh")
+                from mirage.embeddings.models import get_multimodal_embedder
+                embedder, actual_model, _ = get_multimodal_embedder(gpus=gpus)
+                print(f"   Loaded {actual_model} embedder on GPU(s): {gpus}")
+            
             embeddings = get_embeddings_multimodal(chunks, embedder)
         else:
             print("   Mode: Text-Only (BGE-M3) - COMPUTING ON THE FLY")

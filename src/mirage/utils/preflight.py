@@ -61,6 +61,9 @@ def check_config() -> CheckResult:
         paths = get_paths_config()
         embed = get_embedding_config()
         
+        # Use env var override if set (from CLI --output), then fall back to config
+        output_dir = os.environ.get("MIRAGE_OUTPUT_DIR") or paths.get('output_dir', 'UNKNOWN')
+        
         return CheckResult(
             name="Configuration",
             status=CheckStatus.PASS,
@@ -70,7 +73,7 @@ def check_config() -> CheckResult:
                 "llm_model": backend.get('llm_model', 'UNKNOWN'),
                 "vlm_model": backend.get('vlm_model', 'UNKNOWN'),
                 "embedding_model": embed.get('model', 'UNKNOWN'),
-                "output_dir": paths.get('output_dir', 'UNKNOWN')
+                "output_dir": output_dir
             }
         )
     except FileNotFoundError as e:
@@ -437,7 +440,9 @@ def check_output_directory() -> CheckResult:
     try:
         from mirage.core.config import get_paths_config
         paths = get_paths_config()
-        output_dir = paths.get('output_dir', 'trials/results')
+        
+        # Use env var override if set (from CLI --output), then fall back to config
+        output_dir = os.environ.get("MIRAGE_OUTPUT_DIR") or paths.get('output_dir', 'trials/results')
         
         # Create directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)

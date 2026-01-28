@@ -192,15 +192,23 @@ if os.environ.get("MIRAGE_RUN_DEDUPLICATION") == "1":
 if os.environ.get("MIRAGE_RUN_EVALUATION") == "1":
     RUN_EVALUATION = True
 
-# Derived output paths
-OUTPUT_CHUNKS = os.path.join(OUTPUT_DIR, "chunks.json")
-OUTPUT_EMBEDDINGS_DIR = os.path.join(OUTPUT_DIR, "embeddings")
-OUTPUT_QA_SUCCESSFUL = os.path.join(OUTPUT_DIR, "qa_multihop_pass.json")
-OUTPUT_QA_FAILED = os.path.join(OUTPUT_DIR, "qa_multihop_fail.json")
-OUTPUT_MALFORMED_CHUNKS = os.path.join(OUTPUT_DIR, "malformed_chunks.json")
-OUTPUT_QA_DEDUPLICATED = os.path.join(OUTPUT_DIR, "qa_deduplicated.json")
-OUTPUT_CHUNKS_WITH_CONTEXT = os.path.join(OUTPUT_DIR, "chunks_with_complete_context.json")
-OUTPUT_EVAL_REPORT = os.path.join(OUTPUT_DIR, "subset_evaluation_report.json")
+# Helper function to recompute all derived output paths
+def _update_output_paths():
+    """Update all derived output paths based on current OUTPUT_DIR."""
+    global OUTPUT_CHUNKS, OUTPUT_EMBEDDINGS_DIR, OUTPUT_QA_SUCCESSFUL
+    global OUTPUT_QA_FAILED, OUTPUT_MALFORMED_CHUNKS, OUTPUT_QA_DEDUPLICATED
+    global OUTPUT_CHUNKS_WITH_CONTEXT, OUTPUT_EVAL_REPORT
+    OUTPUT_CHUNKS = os.path.join(OUTPUT_DIR, "chunks.json")
+    OUTPUT_EMBEDDINGS_DIR = os.path.join(OUTPUT_DIR, "embeddings")
+    OUTPUT_QA_SUCCESSFUL = os.path.join(OUTPUT_DIR, "qa_multihop_pass.json")
+    OUTPUT_QA_FAILED = os.path.join(OUTPUT_DIR, "qa_multihop_fail.json")
+    OUTPUT_MALFORMED_CHUNKS = os.path.join(OUTPUT_DIR, "malformed_chunks.json")
+    OUTPUT_QA_DEDUPLICATED = os.path.join(OUTPUT_DIR, "qa_deduplicated.json")
+    OUTPUT_CHUNKS_WITH_CONTEXT = os.path.join(OUTPUT_DIR, "chunks_with_complete_context.json")
+    OUTPUT_EVAL_REPORT = os.path.join(OUTPUT_DIR, "subset_evaluation_report.json")
+
+# Derived output paths (initial computation)
+_update_output_paths()
 
 # ============================================================================
 # GLOBAL MODEL & EMBEDDING CACHE (Load once, reuse throughout pipeline)
@@ -1032,7 +1040,15 @@ def get_domain_and_expert(chunks_file: str, embeddings: Optional[np.ndarray] = N
     """
     from mirage.pipeline.domain import fetch_domain_and_role, load_domain_expert_from_env, save_domain_expert_to_env
     
-    # Priority 1: Check config.yaml
+    # Priority 1: Check environment variables (highest priority - flags/variables override config)
+    env_domain, env_persona = load_domain_expert_from_env()
+    if env_domain and env_persona:
+        print(f"Using domain and expert persona from environment variables")
+        print(f"   Domain: {env_domain}")
+        print(f"   Expert Persona: {env_persona}")
+        return env_domain, env_persona
+    
+    # Priority 2: Check config.yaml
     try:
         from mirage.core.config import get_domain_expert_config
         domain_config = get_domain_expert_config()
@@ -1048,11 +1064,6 @@ def get_domain_and_expert(chunks_file: str, embeddings: Optional[np.ndarray] = N
             return config_domain, config_persona
     except ImportError:
         pass
-    
-    # Priority 2: Check environment variables
-    env_domain, env_persona = load_domain_expert_from_env()
-    if env_domain and env_persona:
-        return env_domain, env_persona
 
     # Priority 3: Auto-detect using BERTopic
     print("\nAuto-detecting domain and expert persona from corpus...")
@@ -1923,17 +1934,14 @@ def run_pipeline():
     
     # Update OUTPUT_DIR from environment variable (set by run_mirage.py)
     # This ensures the --output argument is properly used
-    if os.environ.get("MIRAGE_OUTPUT_DIR"):
-        OUTPUT_DIR = os.environ.get("MIRAGE_OUTPUT_DIR")
+    env_output_dir = os.environ.get("MIRAGE_OUTPUT_DIR")
+    if env_output_dir:
+        OUTPUT_DIR = env_output_dir
         # Recompute all derived output paths with correct OUTPUT_DIR
-        OUTPUT_CHUNKS = os.path.join(OUTPUT_DIR, "chunks.json")
-        OUTPUT_EMBEDDINGS_DIR = os.path.join(OUTPUT_DIR, "embeddings")
-        OUTPUT_QA_SUCCESSFUL = os.path.join(OUTPUT_DIR, "qa_multihop_pass.json")
-        OUTPUT_QA_FAILED = os.path.join(OUTPUT_DIR, "qa_multihop_fail.json")
-        OUTPUT_MALFORMED_CHUNKS = os.path.join(OUTPUT_DIR, "malformed_chunks.json")
-        OUTPUT_QA_DEDUPLICATED = os.path.join(OUTPUT_DIR, "qa_deduplicated.json")
-        OUTPUT_CHUNKS_WITH_CONTEXT = os.path.join(OUTPUT_DIR, "chunks_with_complete_context.json")
-        OUTPUT_EVAL_REPORT = os.path.join(OUTPUT_DIR, "subset_evaluation_report.json")
+        _update_output_paths()
+        print(f"📁 Output directory set from CLI: {OUTPUT_DIR}")
+    else:
+        print(f"📁 Output directory from config: {OUTPUT_DIR}")
     
     setup_logging()
     

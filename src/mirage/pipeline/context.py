@@ -105,7 +105,20 @@ CONTEXT_SIZE = 2            # Number of chunks to use as final context
 
 # Paths (configured via main.py or config.yaml)
 # These defaults are overridden by main.py's configure_retrieval_paths()
-_default_output = os.environ.get("MIRAGE_OUTPUT_DIR", "output")
+# Priority: Environment variable > config.yaml > default
+def _get_output_dir():
+    """Get output directory with proper priority: env var > config > default"""
+    env_output = os.environ.get("MIRAGE_OUTPUT_DIR")
+    if env_output:
+        return env_output
+    try:
+        from mirage.core.config import get_paths_config
+        paths = get_paths_config()
+        return paths.get('output_dir', 'output')
+    except:
+        return 'output'
+
+_default_output = _get_output_dir()
 EMBEDDINGS_DIR = os.path.join(_default_output, "embeddings")
 CHUNKS_FILE = os.path.join(_default_output, "chunks.json")
 IMAGE_BASE_DIR = os.path.join(_default_output, "markdown")

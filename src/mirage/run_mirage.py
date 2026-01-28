@@ -25,11 +25,6 @@ from pathlib import Path
 from typing import Optional
 import multiprocessing as mp
 
-# Import from the package (no sys.path modification needed)
-from mirage.utils.preflight import run_preflight_checks
-from mirage.main import run_pipeline
-
-
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -205,6 +200,12 @@ def setup_environment(args):
         os.environ["MIRAGE_INPUT_DIR"] = args.input
     if args.output:
         os.environ["MIRAGE_OUTPUT_DIR"] = args.output
+    else:
+        # Warn if --output not provided (will use config.yaml default)
+        import logging
+        logging.getLogger(__name__).warning(
+            "No --output specified, using config.yaml output_dir"
+        )
     
     # Set QA generation parameters
     if args.num_qa_pairs:
@@ -270,8 +271,13 @@ def main():
     logger.info("  MiRAGE: Multimodal Multihop RAG Evaluation Dataset Generator")
     logger.info("=" * 70)
     
-    # Setup environment
+    # Setup environment BEFORE importing main.py
+    # This ensures MIRAGE_OUTPUT_DIR is set before main.py module-level code runs
     setup_environment(args)
+    
+    # Import after environment setup so OUTPUT_DIR is set correctly from env vars
+    from mirage.utils.preflight import run_preflight_checks
+    from mirage.main import run_pipeline
     
     # Run preflight checks only
     if args.preflight:
