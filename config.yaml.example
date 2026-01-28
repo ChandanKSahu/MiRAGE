@@ -150,7 +150,7 @@ qa_correction:
 # -----------------------------------------------------------------------------
 retrieval:
   multihop:
-    max_depth: 10          # Max retrieval iterations (null = unlimited)
+    max_depth: 2          # Max retrieval iterations (null = unlimited)
     max_breadth: 5         # Max search queries per iteration
     chunks_per_search: 2   # Chunks retrieved per query
     log_details: true
