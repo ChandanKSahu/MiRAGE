@@ -266,8 +266,10 @@ def get_reranker():
                 reranker_type = "monovlm"
     
     # Get cached reranker if available
+    # For Gemini reranker, always recreate to ensure correct model name (VLM_MODEL_NAME may change)
     cache_key = f'reranker_{reranker_type}'
-    if CACHE_EMBEDDINGS:
+    if CACHE_EMBEDDINGS and reranker_type != "gemini_vlm":
+        # Cache non-Gemini rerankers (MonoVLM, etc.)
         if cache_key not in _MODEL_CACHE or _MODEL_CACHE[cache_key] is None:
             print(f"Loading {reranker_type} reranker...")
             reranker = _create_reranker(reranker_type)
@@ -275,6 +277,9 @@ def get_reranker():
             print(f"{reranker_type} reranker loaded and cached")
         return _MODEL_CACHE[cache_key]
     else:
+        # Always recreate Gemini reranker to use current VLM_MODEL_NAME
+        if reranker_type == "gemini_vlm":
+            print(f"Loading {reranker_type} reranker...")
         return _create_reranker(reranker_type)
 
 def _create_reranker(reranker_type: str):

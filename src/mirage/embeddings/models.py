@@ -68,9 +68,18 @@ def _resolve_local_model_path(model_name: str) -> str:
             snapshots = os.listdir(snapshots_dir)
             if snapshots:
                 latest_snapshot = os.path.join(snapshots_dir, sorted(snapshots)[-1])
-                if os.path.exists(os.path.join(latest_snapshot, "config.json")):
+                # Verify model files exist (not just config.json)
+                config_file = os.path.join(latest_snapshot, "config.json")
+                # Check for at least one model file (safetensors or bin)
+                has_model_files = any(
+                    f.startswith("model") and (f.endswith(".safetensors") or f.endswith(".bin"))
+                    for f in os.listdir(latest_snapshot) if os.path.isfile(os.path.join(latest_snapshot, f))
+                )
+                if os.path.exists(config_file) and has_model_files:
                     print(f"📂 Found cached model at: {latest_snapshot}")
                     return latest_snapshot
+                elif os.path.exists(config_file) and not has_model_files:
+                    print(f"⚠️  Cached model directory found but model files missing, will re-download: {latest_snapshot}")
     
     # No local model found, will download from HuggingFace
     print(f"⬇️  Model not found locally, will download from HuggingFace: {model_name}")
@@ -342,15 +351,31 @@ class Qwen3VLEmbed(BaseMultimodalEmbedder):
         else:
             quantization_config = None
         
-        self.model = AutoModel.from_pretrained(
-            resolved_path,
-            torch_dtype=torch.bfloat16,
-            device_map="auto" if self.device.startswith("cuda") else None,
-            quantization_config=quantization_config,
-            trust_remote_code=True,
-        ).eval()
-        
-        self.processor = AutoProcessor.from_pretrained(resolved_path, trust_remote_code=True)
+        try:
+            self.model = AutoModel.from_pretrained(
+                resolved_path,
+                torch_dtype=torch.bfloat16,
+                device_map="auto" if self.device.startswith("cuda") else None,
+                quantization_config=quantization_config,
+                trust_remote_code=True,
+            ).eval()
+            
+            self.processor = AutoProcessor.from_pretrained(resolved_path, trust_remote_code=True)
+        except (OSError, FileNotFoundError) as e:
+            # If cached path has incomplete files, try downloading fresh
+            if resolved_path != model_name and ("No such file" in str(e) or "not found" in str(e).lower()):
+                print(f"⚠️  Cached model incomplete, downloading fresh from HuggingFace...")
+                self.model = AutoModel.from_pretrained(
+                    model_name,  # Use original model name to force download
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto" if self.device.startswith("cuda") else None,
+                    quantization_config=quantization_config,
+                    trust_remote_code=True,
+                ).eval()
+                
+                self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+            else:
+                raise
         self.embedding_dim = 4096  # Qwen3-VL embedding dimension
         print(f"✅ Qwen3-VL loaded on {self.device}")
     
