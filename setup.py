@@ -97,6 +97,7 @@ setup(
         "console_scripts": [
             "mirage=mirage.cli:main",
             "mirage-preflight=mirage.utils.preflight:main",
+            "run_mirage=mirage.run_mirage:main",
         ],
     },
     

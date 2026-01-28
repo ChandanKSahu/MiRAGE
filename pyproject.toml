@@ -99,6 +99,7 @@ Issues = "https://github.com/ChandanKSahu/MiRAGE/issues"
 [project.scripts]
 mirage = "mirage.cli:main"
 mirage-preflight = "mirage.utils.preflight:main"
+run_mirage = "mirage.run_mirage:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
