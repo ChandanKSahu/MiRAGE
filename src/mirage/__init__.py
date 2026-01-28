@@ -5,7 +5,7 @@ A multi-agent framework for generating high-quality, multimodal, multihop
 question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems.
 """
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 __author__ = "MiRAGE Authors"
 
 

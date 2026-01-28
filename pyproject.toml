@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirage-benchmark"
-version = "1.2.2"
+version = "1.2.3"
 description = "A Multiagent Framework for Generating Multimodal Multihop QA Datasets for RAG Evaluation"
 readme = "README.md"
 license = {text = "Apache-2.0"}
