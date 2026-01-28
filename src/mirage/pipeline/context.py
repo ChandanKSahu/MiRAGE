@@ -357,15 +357,13 @@ def retrieve_and_rerank(query: str, model_name: str = None,
         artifact_text = chunk.get('artifact', 'None')
         artifact_paths = extract_image_paths(artifact_text, file_name)  # List of image paths
         
-        # Also check content field for markdown image references (some chunks have images in content but not artifact)
-        content_text = chunk.get('content', '')
-        if content_text and ('![' in content_text and '](' in content_text):
-            # Extract image paths from content field as well
-            content_image_paths = extract_image_paths(content_text, file_name)
-            # Merge with artifact_paths, avoiding duplicates
-            for path in content_image_paths:
-                if path not in artifact_paths:
-                    artifact_paths.append(path)
+        # If no images found in artifact field, also check content field for image references
+        # (LLM might have put images in content but not extracted to artifact)
+        if not artifact_paths:
+            content_text = chunk.get('content', '')
+            if content_text and ('![' in content_text and '](' in content_text):
+                # Extract image paths from content field as fallback
+                artifact_paths = extract_image_paths(content_text, file_name)
         
         image_path = artifact_paths[0] if artifact_paths else None  # First image for backward compatibility
         
@@ -771,6 +769,13 @@ def build_complete_context(
         artifact_text = initial_chunk.get('artifact', 'None')
         artifact_paths = extract_image_paths(artifact_text, file_name)  # List of image paths
         
+        # If no images found in artifact field, also check content field for image references
+        # (LLM might have put images in content but not extracted to artifact)
+        if not artifact_paths:
+            if chunk_content and ('![' in chunk_content and '](' in chunk_content):
+                # Extract image paths from content field as fallback
+                artifact_paths = extract_image_paths(chunk_content, file_name)
+        
         # For backward compatibility, set image_path to first image
         image_path = artifact_paths[0] if artifact_paths else initial_chunk.get('image_path')
 
@@ -1142,8 +1147,15 @@ if __name__ == "__main__":
             # Extract image path from artifact if it's a standalone image
             image_path = None
             file_name = chunk.get('file_name', 'unknown')
-            if chunk.get('artifact') != "None" and chunk.get('artifact'):
-                image_path = extract_image_path(chunk['artifact'], file_name)
+            artifact_field = chunk.get('artifact', 'None')
+            if artifact_field != "None" and artifact_field:
+                image_path = extract_image_path(artifact_field, file_name)
+            
+            # If no image found in artifact field, also check content field for image references
+            if not image_path:
+                content_text = chunk.get('content', '')
+                if content_text and ('![' in content_text and '](' in content_text):
+                    image_path = extract_image_path(content_text, file_name)
             
             test_chunk_dict = {
                 'content': chunk['content'],
