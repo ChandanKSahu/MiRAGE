@@ -1,0 +1,24 @@
+# MiRAGE Demo Dependencies
+# ==========================
+
+# Gradio UI (for Hugging Face Spaces)
+gradio>=4.0.0
+
+# FastAPI Backend
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+
+# HTTP Client (for Gradio to call FastAPI)
+requests>=2.31.0
+
+# PDF Page Counting
+PyPDF2>=3.0.0
+
+# Pydantic for data validation
+pydantic>=2.0.0
+
+# MiRAGE Core (install from parent directory or PyPI)
+# pip install mirage-benchmark
+# OR for development:
+# pip install -e ..

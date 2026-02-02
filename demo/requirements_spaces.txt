@@ -1,0 +1,6 @@
+# Requirements for Hugging Face Spaces (Gradio UI only)
+# Use this file for the HF Space deployment
+# The FastAPI backend should be deployed separately
+
+gradio>=4.0.0
+requests>=2.31.0
