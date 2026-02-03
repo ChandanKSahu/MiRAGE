@@ -235,9 +235,9 @@ def get_reranker():
     """Get or create reranker based on backend/API keys (cached if CACHE_EMBEDDINGS=True)
     
     Auto-selects reranker:
-    - Gemini backend/API key → GeminiVLMReranker
-    - OpenAI backend/API key → GeminiVLMReranker (if Gemini key available) or MonoVLM
-    - Otherwise → Uses RERANKER_MODEL env/config or defaults to GeminiVLMReranker
+    - Gemini backend/API key -> GeminiVLMReranker
+    - OpenAI backend/API key -> GeminiVLMReranker (if Gemini key available) or MonoVLM
+    - Otherwise -> Uses RERANKER_MODEL env/config or defaults to GeminiVLMReranker
     """
     # Determine which reranker to use based on backend and API keys
     reranker_type = None
@@ -355,7 +355,7 @@ def get_embedder(model_name: Optional[str] = None, use_multimodal: bool = True):
     Args:
         model_name: Specific model to load, or None to use config/auto-detect
         use_multimodal: If True and model_name is None, try multimodal models first
-                       (Qwen3-VL → Nomic → bge-m3 fallback)
+                       (Qwen3-VL -> Nomic -> bge-m3 fallback)
     """
     global EMBEDDING_MODEL
     
@@ -707,7 +707,7 @@ def convert_documents_to_chunks_parallel(doc_dir: str, output_chunks_file: str,
     if completed_chunk_files:
         print(f"   [OK] {len(completed_chunk_files)} files already chunked (from checkpoint)")
     if pending_md_files:
-        print(f"   ⏳ {len(pending_md_files)} files to chunk")
+        print(f"   [Pending] {len(pending_md_files)} files to chunk")
     
     # Process pending files
     if pending_md_files:
@@ -1452,7 +1452,7 @@ def generate_qa_dataset_parallel(chunks: list, domain: str, expert_persona: str,
     if completed_chunk_ids:
         print(f"Resuming from checkpoint: {len(completed_chunk_ids)} chunks already processed")
         print(f"   [OK] {len(existing_successful)} successful QA pairs loaded")
-        print(f"   ⏳ {len(pending_chunk_data)} chunks remaining")
+        print(f"   [Pending] {len(pending_chunk_data)} chunks remaining")
     else:
         print(f"Processing {len(chunk_data)} chunks from corpus")
     

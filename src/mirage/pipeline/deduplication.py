@@ -28,7 +28,7 @@ try:
     ANSWER_SIMILARITY_MEDIUM = _ans_sim.get('medium', 0.85)
     ANSWER_SIMILARITY_LOW = _ans_sim.get('low', 0.70)
     MIN_COMMUNITY_SIZE = _dedup.get('min_community_size', 2)
-    # α parameter: weight for semantic similarity vs chunk lineage (Eq. 10 in manuscript)
+    # alpha parameter: weight for semantic similarity vs chunk lineage (Eq. 10 in manuscript)
     ALPHA = _dedup.get('alpha', 0.6)
     print(f"[OK] Deduplication config loaded: alpha={ALPHA}, question_threshold={QUESTION_SIMILARITY_THRESHOLD}")
 except ImportError:
@@ -38,7 +38,7 @@ except ImportError:
     ANSWER_SIMILARITY_MEDIUM = 0.85
     ANSWER_SIMILARITY_LOW = 0.70
     MIN_COMMUNITY_SIZE = 2
-    ALPHA = 0.6  # Default α for Eq. 10: α * semantic_sim + (1-α) * jaccard
+    ALPHA = 0.6  # Default alpha for Eq. 10: alpha * semantic_sim + (1-alpha) * jaccard
 
 # Configuration
 OUTPUT_DIR = "output"
@@ -271,8 +271,8 @@ def hierarchical_clustering(
         # Compute answer similarity matrix
         answer_sim_matrix = util.pytorch_cos_sim(q_cluster_answer_embs, q_cluster_answer_embs)
         
-        # Combined similarity per Eq. 10: α * cos(e_ai, e_aj) + (1-α) * J(C^s_i, C^s_j)
-        # α weights semantic similarity; (1-α) weights chunk lineage Jaccard overlap
+        # Combined similarity per Eq. 10: alpha * cos(e_ai, e_aj) + (1-alpha) * J(C^s_i, C^s_j)
+        # alpha weights semantic similarity; (1-alpha) weights chunk lineage Jaccard overlap
         combined_sim = ALPHA * answer_sim_matrix.cpu().numpy() + (1 - ALPHA) * chunk_overlap_matrix
         
         # Find high-similarity pairs and group them

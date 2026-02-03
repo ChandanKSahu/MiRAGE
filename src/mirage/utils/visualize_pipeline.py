@@ -2,13 +2,13 @@
 Multihop QA Generation Pipeline Visualization
 
 Visualizes the complete pipeline:
-1. Source Chunk → generates >=1 Queries
-2. Each Query → retrieves >=1 Chunks  
-3. All chunks → form Context
-4. Each chunk in context → extracts >=1 Keywords
-5. Keywords → form >=1 Bridge/Keyword Chains linking chunks
-6. Context + Bridges → generate >=1 QA pairs
-7. (Optional) Similar QAs → Rank → Merge → Deduplicated QA
+1. Source Chunk -> generates >=1 Queries
+2. Each Query -> retrieves >=1 Chunks  
+3. All chunks -> form Context
+4. Each chunk in context -> extracts >=1 Keywords
+5. Keywords -> form >=1 Bridge/Keyword Chains linking chunks
+6. Context + Bridges -> generate >=1 QA pairs
+7. (Optional) Similar QAs -> Rank -> Merge -> Deduplicated QA
 """
 
 import plotly.graph_objects as go
@@ -233,14 +233,14 @@ def build_example_graph():
             "kw1": "kw_0_1",  # chicken broth
             "kw2": "kw_1_2",  # stocks/broths from animal tissue
             "relation": "poultry origin -> animal tissue",
-            "description": '"chicken broth" ↔ "stocks/broths derived from animal tissue" via poultry origin'
+            "description": '"chicken broth" <-> "stocks/broths derived from animal tissue" via poultry origin'
         },
         {
             "id": "bridge_1",
             "kw1": "kw_1_2",  # stocks/broths from animal tissue
             "kw2": "kw_2_1",  # fats, stocks, broths  
             "relation": "category match",
-            "description": '"stocks/broths from animal tissue" ↔ "fats, stocks, broths" via ingredient category'
+            "description": '"stocks/broths from animal tissue" <-> "fats, stocks, broths" via ingredient category'
         }
     ]
     
@@ -414,12 +414,12 @@ def create_graph_visualization():
     # Column headers
     columns = [
         (0, "Source\nChunk"),
-        (1.5, "Queries\n(≥1)"),
-        (3, "Retrieved\nChunks (≥1)"),
+        (1.5, "Queries\n(>=1)"),
+        (3, "Retrieved\nChunks (>=1)"),
         (4.8, "Context"),
-        (6.3, "Keywords\n(≥1 per chunk)"),
-        (7.8, "Keyword\nChains (≥1)"),
-        (9.3, "Generated\nQA (≥1)"),
+        (6.3, "Keywords\n(>=1 per chunk)"),
+        (7.8, "Keyword\nChains (>=1)"),
+        (9.3, "Generated\nQA (>=1)"),
         (11.0, "Similar\nQAs"),
         (12.8, "Deduplicated\nQA")
     ]
@@ -710,17 +710,17 @@ def create_detailed_html_page():
         <div class="pipeline-flow">
             <span class="flow-step">Source Chunk</span>
             <span class="flow-arrow">-></span>
-            <span class="flow-step">Queries (≥1)</span>
+            <span class="flow-step">Queries (>=1)</span>
             <span class="flow-arrow">-></span>
-            <span class="flow-step">Retrieved Chunks (≥1)</span>
+            <span class="flow-step">Retrieved Chunks (>=1)</span>
             <span class="flow-arrow">-></span>
             <span class="flow-step">Context</span>
             <span class="flow-arrow">-></span>
-            <span class="flow-step">Keywords (≥1)</span>
+            <span class="flow-step">Keywords (>=1)</span>
             <span class="flow-arrow">-></span>
-            <span class="flow-step">Keyword Chains (≥1)</span>
+            <span class="flow-step">Keyword Chains (>=1)</span>
             <span class="flow-arrow">-></span>
-            <span class="flow-step">Generated QA (≥1)</span>
+            <span class="flow-step">Generated QA (>=1)</span>
             <span class="flow-arrow">-></span>
             <span class="flow-step">Deduplication</span>
         </div>
@@ -769,7 +769,7 @@ def create_detailed_html_page():
             
             <div class="bridge-box" style="margin-top: 16px;">
                 <div class="relation">Bridge Keyword Chain</div>
-                <p style="margin-top:8px;">"chicken broth" ↔ "stocks/broths derived from animal tissue" <br><em>via poultry origin</em></p>
+                <p style="margin-top:8px;">"chicken broth" <-> "stocks/broths derived from animal tissue" <br><em>via poultry origin</em></p>
             </div>
             
             <div class="qa-box" style="margin-top: 16px;">
@@ -788,12 +788,12 @@ def create_detailed_html_page():
             <h2>Pipeline Stages Explained</h2>
             <ol style="line-height: 2; color: #CCC; padding-left: 20px;">
                 <li><strong style="color:#2ECC71;">Source Chunk Analysis:</strong> Evaluate chunk for semantic completeness and extract concepts</li>
-                <li><strong style="color:#F1C40F;">Query Generation:</strong> If incomplete, generate ≥1 search queries to retrieve missing information</li>
-                <li><strong style="color:#3498DB;">Chunk Retrieval:</strong> Each query retrieves ≥1 chunks, classified as EXPLANATORY/RELATED/UNRELATED</li>
+                <li><strong style="color:#F1C40F;">Query Generation:</strong> If incomplete, generate >=1 search queries to retrieve missing information</li>
+                <li><strong style="color:#3498DB;">Chunk Retrieval:</strong> Each query retrieves >=1 chunks, classified as EXPLANATORY/RELATED/UNRELATED</li>
                 <li><strong style="color:#1ABC9C;">Context Building:</strong> Combine source chunk with relevant retrieved chunks</li>
-                <li><strong style="color:#9B59B6;">Keyword Extraction:</strong> Extract ≥1 keywords from each chunk in context</li>
+                <li><strong style="color:#9B59B6;">Keyword Extraction:</strong> Extract >=1 keywords from each chunk in context</li>
                 <li><strong style="color:#E74C3C;">Bridge Formation:</strong> Identify keyword chains that link concepts across chunks</li>
-                <li><strong style="color:#E67E22;">QA Generation:</strong> Synthesize ≥1 multi-hop QA pairs requiring information from multiple chunks</li>
+                <li><strong style="color:#E67E22;">QA Generation:</strong> Synthesize >=1 multi-hop QA pairs requiring information from multiple chunks</li>
                 <li><strong style="color:#27AE60;">Deduplication:</strong> Rank similar QAs, merge redundant ones, produce refined final QA</li>
             </ol>
         </div>

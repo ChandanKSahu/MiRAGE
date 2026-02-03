@@ -2043,7 +2043,7 @@ def run_subset_evaluation(
     print("  │                 MULTIMODAL & DOMAIN                         │")
     print("  ├─────────────────────────────────────────────────────────────┤")
     print(f"  │  Visual Grounding (Vis. Gr.)    │  {fmt(vis_gr)}              │")
-    print(f"  │  Jensen-Shannon Div. (JSD) ↓    │  {fmt(jsd, 4)}              │")
+    print(f"  │  Jensen-Shannon Div. (JSD) v    │  {fmt(jsd, 4)}              │")
     print(f"  │  Context Necessity              │  {fmt(ctx_nec)}              │")
     print("  └─────────────────────────────────────────────────────────────┘")
     

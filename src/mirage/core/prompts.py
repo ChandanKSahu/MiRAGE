@@ -156,10 +156,10 @@ QUERY:
 The third quarter showed significant volatility across major indices, driven largely by fluctuations in the technology and energy sectors. While the S&P 500 maintained a neutral stance, emerging markets faced headwinds due to currency devaluation.
 This chart tracks the daily volatility index (VIX) against the S&P 500 closing price over the 90-day period. The red line indicates the volatility spikes observed in mid-August.
 ![VIX vs SP500](/assets/charts/q3_volatility.png)
-Figure 3.1 – Volatility Index vs. Market Close
+Figure 3.1 - Volatility Index vs. Market Close
 ## Sector Analysis
 Despite the volatility, the consumer discretionary sector outperformed expectations. The following table breaks down the percentage growth by sector compared to the previous quarter.
-Table 2 – Sector Performance Summary
+Table 2 - Sector Performance Summary
 | Sector | Q2 Growth | Q3 Growth | Change |
 |---|---|---|---|
 | Technology | 4.5% | -1.2% | -5.7% |
@@ -174,10 +174,10 @@ RESPONSE:
 The third quarter showed significant volatility across major indices, driven largely by fluctuations in the technology and energy sectors. While the S&P 500 maintained a neutral stance, emerging markets faced headwinds due to currency devaluation.<|#|><artifact>None<|#|><status>COMPLETE<|#|><chunk_end>
 <chunk_id>2<|#|><chunk_type>figure<|#|><content>This chart tracks the daily volatility index (VIX) against the S&P 500 closing price over the 90-day period. The red line indicates the volatility spikes observed in mid-August.
 ![VIX vs SP500](/assets/charts/q3_volatility.png)
-Figure 3.1 – Volatility Index vs. Market Close<|#|><artifact>![VIX vs SP500](/assets/charts/q3_volatility.png)<|#|><status>COMPLETE<|#|><chunk_end>
+Figure 3.1 - Volatility Index vs. Market Close<|#|><artifact>![VIX vs SP500](/assets/charts/q3_volatility.png)<|#|><status>COMPLETE<|#|><chunk_end>
 <chunk_id>3<|#|><chunk_type>table<|#|><content>## Sector Analysis
 Despite the volatility, the consumer discretionary sector outperformed expectations. The following table breaks down the percentage growth by sector compared to the previous quarter.
-Table 2 – Sector Performance Summary
+Table 2 - Sector Performance Summary
 | Sector | Q2 Growth | Q3 Growth | Change |
 |---|---|---|---|
 | Technology | 4.5% | -1.2% | -5.7% |
@@ -203,7 +203,7 @@ Spherical or oval-shaped bacteria, typically 0.5 to 1.0 micrometers in diameter.
 Rod-shaped bacteria that can vary widely in length. Some bacilli form endospores under stressful environmental conditions.
 ## 5. Gram Staining Results
 The samples were subjected to Gram staining to differentiate bacterial species based on cell wall properties. The visual results are cataloged below.
-Table 3 – Gram Stain Observations
+Table 3 - Gram Stain Observations
 | Sample ID | Classification | Microscopic View | Characteristics |
 |---|---|---|---|
 | S-104 | Gram-positive | ![Gram Positive](/imgs/micro/s104_pos.jpg) | Thick peptidoglycan layer, stains purple/blue. |
@@ -223,7 +223,7 @@ Spherical or oval-shaped bacteria, typically 0.5 to 1.0 micrometers in diameter.
 Rod-shaped bacteria that can vary widely in length. Some bacilli form endospores under stressful environmental conditions.<|#|><artifact>None<|#|><status>COMPLETE<|#|><chunk_end>
 <chunk_id>3<|#|><chunk_type>table with images<|#|><content>## 5. Gram Staining Results
 The samples were subjected to Gram staining to differentiate bacterial species based on cell wall properties. The visual results are cataloged below.
-Table 3 – Gram Stain Observations
+Table 3 - Gram Stain Observations
 | Sample ID | Classification | Microscopic View | Characteristics |
 |---|---|---|---|
 | S-104 | Gram-positive | ![Gram Positive](/imgs/micro/s104_pos.jpg) | Thick peptidoglycan layer, stains purple/blue. |
@@ -259,7 +259,7 @@ Input Topics:
 
 Response:
 <|#|>START<|#|>
-<|#|>Domain: Electrical Engineering – Electric Motors and Drives
+<|#|>Domain: Electrical Engineering - Electric Motors and Drives
 <|#|>Expert Role: Motor Design and Testing Engineer
 <|#|>END<|#|>
 
@@ -273,7 +273,7 @@ Input Topics:
 
 Response:
 <|#|>START<|#|>
-<|#|>Domain: Mechanical Engineering – Piping and Fluid Systems
+<|#|>Domain: Mechanical Engineering - Piping and Fluid Systems
 <|#|>Expert Role: Pipeline Integrity Engineer
 <|#|>END<|#|>
 """
@@ -298,7 +298,7 @@ Status<|#|><RELEVANT | NOT_RELEVANT><|#|>Explanation<|#|><Brief single-sentence 
 Example 1 (RELEVANT):
 ------------------------------------------------
 Expert Role: Investment Analyst
-Domain: Finance – Equity Markets
+Domain: Finance - Equity Markets
 Content:
 Table 4.2 illustrates the Year-over-Year (YoY) revenue growth across the APAC region. While the semiconductor sector saw a 14% contraction, the cloud infrastructure segment expanded by 22%, driving the aggregate EBITDA margin to 18.5%.
 
@@ -311,9 +311,9 @@ Status<|#|>RELEVANT<|#|>Explanation<|#|>The content contains specific financial 
 Example 2 (NOT_RELEVANT):
 ------------------------------------------------
 Expert Role: Molecular Biologist
-Domain: Life Sciences – Genomics
+Domain: Life Sciences - Genomics
 Content:
-Copyright © 2024 Global Science Journals. All rights reserved. No part of this publication may be reproduced without written permission.
+Copyright (c) 2024 Global Science Journals. All rights reserved. No part of this publication may be reproduced without written permission.
 [Image: Small generic icon of a book]
 
 RESPONSE:
@@ -331,7 +331,7 @@ You are a(n) {expert_persona} in the domain of {domain_context}. Your task is to
 
 **EXECUTION PROTOCOL:**
 1.  **Analyze:** Identify distinct chunks and extract critical technical keywords for each.
-2.  **Map:** Identify "Bridge Keywords"—concepts that intersect or relate across different chunks.
+2.  **Map:** Identify "Bridge Keywords"--concepts that intersect or relate across different chunks.
 3.  **Synthesize:** Construct one or more questions that **requires** combining information from multiple chunks to answer. If a question can be answered by a single chunk, it is invalid.
 4.  **Decompose:** Verify the logic by mapping specific parts of the Questions and Answers back to their source chunks.
 
@@ -516,18 +516,18 @@ Status<|#|>QUESTION_INCORRECT, ANSWER_CORRECT, REQUIRES_CONTENT<|#|>Explanation<
 Example 2 (Misleading Visual Reference - QUESTION_INCORRECT):
 ------------------------------------------------
 Content:
-Recipe Instructions: Preheat oven to 350°F. Mix flour and sugar in equal parts. Bake for 25 minutes.
+Recipe Instructions: Preheat oven to 350F. Mix flour and sugar in equal parts. Bake for 25 minutes.
 [Image: Photo of a finished chocolate cake]
 
 Question:
 Based on the cake shown in the image, what temperature should the oven be set to?
 
 Answer:
-The oven should be set to 350°F.
+The oven should be set to 350F.
 
 RESPONSE:
 <|#|>START<|#|>
-Status<|#|>QUESTION_INCORRECT, ANSWER_CORRECT, REQUIRES_CONTENT<|#|>Explanation<|#|>The question mentions "the cake shown in the image" but the answer (350°F) comes entirely from the text instructions - looking at the image is unnecessary. The visual reference is misleading.
+Status<|#|>QUESTION_INCORRECT, ANSWER_CORRECT, REQUIRES_CONTENT<|#|>Explanation<|#|>The question mentions "the cake shown in the image" but the answer (350F) comes entirely from the text instructions - looking at the image is unnecessary. The visual reference is misleading.
 <|#|>END<|#|>
 """
 
@@ -744,11 +744,11 @@ Answer: Both SDIM and SDOM are parts of the BDM (Basic Drive Module). The SDIM p
 
 --- Candidate 4 ---
 Question: What functional distinction exists between an SDM and an SDIM in terms of power conversion capabilities?
-Answer: An SDM is a generic drive block performing AC→DC, DC→DC, or DC→AC conversion. An SDIM is a specialized SDM limited to AC→DC or DC→DC conversion and may include optional components such as AC or DC chokes, input filters, or DC-link capacitors.
+Answer: An SDM is a generic drive block performing AC->DC, DC->DC, or DC->AC conversion. An SDIM is a specialized SDM limited to AC->DC or DC->DC conversion and may include optional components such as AC or DC chokes, input filters, or DC-link capacitors.
 
 RESPONSE:
 <|#|>START<|#|>
-Question<|#|>What are the architectural relationships and functional distinctions among SDM, SDIM, SDOM, BDM, and CDM in drive system hierarchies, what optional components can an SDIM include beyond basic power conversion, and what is the scope of power conversion for an SDIM compared to a generic SDM?<|#|>Answer<|#|>An SDM (Sub-drive Module) is a generic electrical drive module that can perform AC→DC, DC→DC, or DC→AC conversion. When an SDM functions as an input converter (limited to AC→DC or DC→DC), it is called an SDIM (Sub-drive Input Module); when it functions as an output inverter, it is called an SDOM (Sub-drive Output Module). A BDM (Basic Drive Module) consists of one SDIM paired with one SDOM, where the SDIM provides input conversion and the SDOM provides output inverter function. A CDM (Complete Drive Module) incorporates the BDM plus auxiliary components such as protection devices or transformers, but excludes the motor and sensors, as illustrated in Figure 1. An SDIM may optionally include ancillary components such as AC or DC chokes, input filters, or DC-link capacitors to enhance power quality and system performance. While a generic SDM can perform AC→DC, DC→DC, or DC→AC conversion, an SDIM is specifically limited to AC→DC or DC→DC conversion for input-stage applications.
+Question<|#|>What are the architectural relationships and functional distinctions among SDM, SDIM, SDOM, BDM, and CDM in drive system hierarchies, what optional components can an SDIM include beyond basic power conversion, and what is the scope of power conversion for an SDIM compared to a generic SDM?<|#|>Answer<|#|>An SDM (Sub-drive Module) is a generic electrical drive module that can perform AC->DC, DC->DC, or DC->AC conversion. When an SDM functions as an input converter (limited to AC->DC or DC->DC), it is called an SDIM (Sub-drive Input Module); when it functions as an output inverter, it is called an SDOM (Sub-drive Output Module). A BDM (Basic Drive Module) consists of one SDIM paired with one SDOM, where the SDIM provides input conversion and the SDOM provides output inverter function. A CDM (Complete Drive Module) incorporates the BDM plus auxiliary components such as protection devices or transformers, but excludes the motor and sensors, as illustrated in Figure 1. An SDIM may optionally include ancillary components such as AC or DC chokes, input filters, or DC-link capacitors to enhance power quality and system performance. While a generic SDM can perform AC->DC, DC->DC, or DC->AC conversion, an SDIM is specifically limited to AC->DC or DC->DC conversion for input-stage applications.
 <|#|>NEXT<|#|>
 Question<|#|>What optional sub-components and loss categories must be considered when evaluating SDIM and SDOM modules?<|#|>Answer<|#|>For SDIM evaluation (section B.4.5), optional components include input-converter topology, input filter, line chokes, DC link, dedicated cooling elements, and auxiliary power supply; both control losses and standby losses must be included. For SDOM evaluation (section B.6.2), optional components include the output inverter with DC link, output filter, dedicated cooling elements, and auxiliary power supply; control losses and standby losses must also be accounted for in the efficiency assessment.
 <|#|>END<|#|>
@@ -786,7 +786,7 @@ Merged Questions:
 Merged Answers:
 1. All-purpose flour provides the best structure.
 2. A mix of both sugars creates the best texture.
-3. Heat to 350°F (175°C).
+3. Heat to 350F (175C).
 4. Bake for 10-12 minutes.
 
 RESPONSE (Split into two packs: "Ingredients" and "Process"):
@@ -795,7 +795,7 @@ Question<|#|>What type of flour is best for chocolate chip cookies?
 Should I use brown sugar or white sugar?<|#|>Answer<|#|>For the best structure and texture, use all-purpose flour and a mixture of both brown and white sugar.
 <|#|>NEXT<|#|>
 Question<|#|>What temperature should I set the oven to?
-How long do the cookies need to bake?<|#|>Answer<|#|>Preheat the oven to 350°F (175°C) and bake the cookies for 10-12 minutes.
+How long do the cookies need to bake?<|#|>Answer<|#|>Preheat the oven to 350F (175C) and bake the cookies for 10-12 minutes.
 <|#|>END<|#|>
 """
 
@@ -857,14 +857,14 @@ Completeness<|#|><0.0-1.0><|#|>Accuracy<|#|><0.0-1.0><|#|>VisualInfo<|#|><YES/NO
 Example (Domain: Weather Forecasting)
 ------------------------------------------------
 Context:
-[Text]: "Saturday will be sunny with a high of 75°F."
-[Visual]: (A 5-day forecast chart showing a Rain Cloud icon and '60°F' for Sunday).
+[Text]: "Saturday will be sunny with a high of 75F."
+[Visual]: (A 5-day forecast chart showing a Rain Cloud icon and '60F' for Sunday).
 
 Question:
 What is the weather outlook for the entire weekend?
 
 Answer:
-Saturday is expected to be sunny and 75°F, while Sunday will be rainy with a high of 60°F.
+Saturday is expected to be sunny and 75F, while Sunday will be rainy with a high of 60F.
 
 RESPONSE:
 <|#|>START<|#|>
@@ -1082,14 +1082,14 @@ Example:
 ------------------------------------------------
 CONTEXT (Text + Image):
 Image: {{file_loc1}}
-Technical Summary: This figure presents the relationship between the density (ρ) and specific heat capacity (cp) of pure water across a range of temperatures from 0°C to 80°C.
+Technical Summary: This figure presents the relationship between the density (rho) and specific heat capacity (cp) of pure water across a range of temperatures from 0C to 80C.
 
 QUESTION: At what temperature does water have minimum specific heat capacity?
-ANSWER: Water has minimum specific heat capacity at approximately 35°C. The specific heat capacity value at this point is about 4.178 kJ/(kg·K).
+ANSWER: Water has minimum specific heat capacity at approximately 35C. The specific heat capacity value at this point is about 4.178 kJ/(kg*K).
 
 CLAIMS TO VERIFY:
-CLAIM_1: Water has minimum specific heat capacity at approximately 35°C
-CLAIM_2: The specific heat capacity at this point is about 4.178 kJ/(kg·K)
+CLAIM_1: Water has minimum specific heat capacity at approximately 35C
+CLAIM_2: The specific heat capacity at this point is about 4.178 kJ/(kg*K)
 CLAIM_3: The density of water is constant across all temperatures
 
 RESPONSE:

@@ -2,7 +2,7 @@
 """
 Multihop QA Visualization - Shows keyword chains linking chunks to QA pairs.
 
-Flow: Initial Chunk → [Depth 1: Queries → Chunks] → [Depth 2: ...] → Context → Keywords → QA
+Flow: Initial Chunk -> [Depth 1: Queries -> Chunks] -> [Depth 2: ...] -> Context -> Keywords -> QA
 
 Usage:
     python visualize_multihop.py [--qa-file PATH] [--index N] [--output PATH]
@@ -355,12 +355,12 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
         <div class="section">
             <div class="section-title">Initial Chunk</div>
             <div class="initial-chunk">
-                <span class="initial-label">SEED CHUNK · {initial_chunk.get('file_name', 'unknown')}:{initial_chunk.get('chunk_id', '?')}</span>
+                <span class="initial-label">SEED CHUNK - {initial_chunk.get('file_name', 'unknown')}:{initial_chunk.get('chunk_id', '?')}</span>
                 <div class="chunk-content">{initial_highlighted}</div>
             </div>
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 '''
     
     # Retrieval Iterations Section
@@ -446,7 +446,7 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
     html += '''
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 '''
     
     # Final Context Section
@@ -468,7 +468,7 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
             </div>
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 '''
     
     # Keyword Chain Section
@@ -488,7 +488,7 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
                     color = query_colors[i % len(query_colors)]
                     html += f'''
                 <span class="chain-kw" style="background:{color}33;color:{color};">{kw1}</span>
-                <span class="chain-arrow">-></span>
+                <span class="chain-arrow">-&gt;</span>
                 <span class="chain-kw" style="background:{color}33;color:{color};">{kw2}</span>
                 <span class="chain-relation">({connection})</span>
 '''
@@ -496,7 +496,7 @@ def generate_html_visualization(qa_item: Dict, output_path: str = None) -> str:
             </div>
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 '''
     
     # Generated QA Section
