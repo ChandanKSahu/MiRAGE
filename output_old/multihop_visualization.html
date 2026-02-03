@@ -243,8 +243,8 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔗 Multihop QA Visualization</h1>
-        <p class="subtitle">Initial Chunk → Retrieval Iterations → Context → Keyword Chain → QA</p>
+        <h1> Multihop QA Visualization</h1>
+        <p class="subtitle">Initial Chunk -> Retrieval Iterations -> Context -> Keyword Chain -> QA</p>
         
         <div class="stats">
             <div class="stat">
@@ -266,17 +266,17 @@
         </div>
 
         <div class="section">
-            <div class="section-title">📄 Initial Chunk</div>
+            <div class="section-title">[File] Initial Chunk</div>
             <div class="initial-chunk">
-                <span class="initial-label">SEED CHUNK · ECE_TRANS_180a21e:47</span>
+                <span class="initial-label">SEED CHUNK - ECE_TRANS_180a21e:47</span>
                 <div class="chunk-content">Or,<br><br>6.1.3.1.2. At least one of the following conditions (a) to (c) is fulfilled:<br><br>- (a) <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">Current</span> and <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">voltage</span> at the input to each <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverter</span> that is powered by the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">REESS</span>  can  be  determined,  and  the  manufacturer  provides  accurate <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1(n) factors</span> representing the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between each input and the corresponding reference point(s).</div>
             </div>
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title">🔄 Retrieval Iterations</div>
+            <div class="section-title">[Sync] Retrieval Iterations</div>
 
             <div class="depth-section">
                 <div class="depth-header">
@@ -287,14 +287,14 @@
                 <div class="queries-grid" style="grid-template-columns: repeat(3, 1fr);">
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#42a5f5;">🔍 Query 1: REESS definition automotive</div>
+                        <div class="query-header" style="background:#42a5f5;">[Search] Query 1: REESS definition automotive</div>
                         <div class="query-chunks">
 <div class="no-chunks">No chunks retrieved</div>
                         </div>
                     </div>
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#ff9800;">🔍 Query 2: K1(n) factors electrical conversion efficiency aut...</div>
+                        <div class="query-header" style="background:#ff9800;">[Search] Query 2: K1(n) factors electrical conversion efficiency aut...</div>
                         <div class="query-chunks">
 
                             <div class="retrieved-chunk" style="border-color:#ff9800;">
@@ -317,7 +317,7 @@
                     </div>
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#66bb6a;">🔍 Query 3: inverter input current voltage automotive</div>
+                        <div class="query-header" style="background:#66bb6a;">[Search] Query 3: inverter input current voltage automotive</div>
                         <div class="query-chunks">
 
                             <div class="retrieved-chunk" style="border-color:#66bb6a;">
@@ -343,21 +343,21 @@
                 <div class="queries-grid" style="grid-template-columns: repeat(3, 1fr);">
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#42a5f5;">🔍 Query 1: REESS definition automotive</div>
+                        <div class="query-header" style="background:#42a5f5;">[Search] Query 1: REESS definition automotive</div>
                         <div class="query-chunks">
 <div class="no-chunks">No chunks retrieved</div>
                         </div>
                     </div>
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#ff9800;">🔍 Query 2: K1comb factor definition</div>
+                        <div class="query-header" style="background:#ff9800;">[Search] Query 2: K1comb factor definition</div>
                         <div class="query-chunks">
 <div class="no-chunks">No chunks retrieved</div>
                         </div>
                     </div>
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#66bb6a;">🔍 Query 3: inverter efficiency automotive</div>
+                        <div class="query-header" style="background:#66bb6a;">[Search] Query 3: inverter efficiency automotive</div>
                         <div class="query-chunks">
 <div class="no-chunks">No chunks retrieved</div>
                         </div>
@@ -368,10 +368,10 @@
 
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title">📚 Final Context (All Chunks)</div>
+            <div class="section-title">[Context] Final Context (All Chunks)</div>
             <div class="context-box">
                 <div class="context-chunks-list">
 <span class="context-chunk-tag">ECE_TRANS_180a21e:47 (INITIAL)</span>
@@ -383,34 +383,34 @@
             </div>
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title">🔗 Keyword Chain (Cross-Chunk Connections)</div>
+            <div class="section-title"> Keyword Chain (Cross-Chunk Connections)</div>
             <div class="keyword-chain">
 
                 <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">REESS</span>
-                <span class="chain-arrow">→</span>
+                <span class="chain-arrow">-></span>
                 <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">REESS</span>
                 <span class="chain-relation">(energy storage)</span>
 
                 <span class="chain-kw" style="background:#ff980033;color:#ff9800;">inverter</span>
-                <span class="chain-arrow">→</span>
+                <span class="chain-arrow">-></span>
                 <span class="chain-kw" style="background:#ff980033;color:#ff9800;">inverter</span>
                 <span class="chain-relation">(power conversion)</span>
 
                 <span class="chain-kw" style="background:#66bb6a33;color:#66bb6a;">electrical conversion efficiency</span>
-                <span class="chain-arrow">→</span>
+                <span class="chain-arrow">-></span>
                 <span class="chain-kw" style="background:#66bb6a33;color:#66bb6a;">electrical conversion efficiency</span>
                 <span class="chain-relation">(energy loss)</span>
 
             </div>
         </div>
         
-        <div class="flow-arrow">↓</div>
+        <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title">❓ Generated Question & Answer</div>
+            <div class="section-title">[?] Generated Question & Answer</div>
             <div class="qa-box">
                 <div class="qa-label question-label">Question:</div>
                 <div class="question-text">If the powertrain of a hybrid electric vehicle (HEV) with two powered axles, as depicted in the schematic diagram, uses a single <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1 factor</span> to represent the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between the input to each <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverter</span> and the reference point, what must be true about the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverters</span> according to condition (c)?</div>

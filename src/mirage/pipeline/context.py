@@ -86,7 +86,7 @@ from mirage.core.prompts import PROMPTS_CHUNK
 
 # Multi-hop context completion parameters
 # SAFETY: Sensible limits to prevent runaway API calls
-# Each iteration can generate breadth × chunks_per_search API calls
+# Each iteration can generate breadth * chunks_per_search API calls
 MAX_DEPTH = 2  # Maximum 2 iterations per chunk (cost-optimized default)
 MAX_BREADTH = 5  # Maximum 5 search strings per verification (was 20)
 CHUNKS_PER_SEARCH = 2  # Number of chunks to retrieve per search string

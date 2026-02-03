@@ -562,7 +562,7 @@ def print_qa_category_stats(stats: Dict[str, Any]) -> None:
     print("Category Counts:")
     print(f"  Multihop:                      {stats['multihop_count']:>3} ({stats['multihop_pct']:>5.1f}%)")
     print(f"  Multimodal:                    {stats['multimodal_count']:>3} ({stats['multimodal_pct']:>5.1f}%)")
-    print(f"  Both (Multihop ∩ Multimodal):  {stats['multihop_multimodal_count']:>3} ({stats['multihop_multimodal_pct']:>5.1f}%)")
+    print(f"  Both (Multihop AND Multimodal):  {stats['multihop_multimodal_count']:>3} ({stats['multihop_multimodal_pct']:>5.1f}%)")
     print()
     print("Exclusive Breakdown:")
     print(f"  Multihop only (text):          {stats['multihop_only_count']:>3} ({stats['multihop_only_pct']:>5.1f}%)")

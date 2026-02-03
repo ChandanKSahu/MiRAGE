@@ -995,7 +995,7 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict], use_cache: bool = True
 
 # def extract_role_context(image_path: str) -> Tuple[str, str, str]:
 #     """Extract figure description, expert role, and figure category from image"""
-#     print("🔍 Extracting role context from image...")
+#     print("[Scan] Extracting role context from image...")
     
 #     # Use the role_context prompt with example images
 #     example_paths = [fie_loc1, fie_loc2, fie_loc3, fie_loc4]
@@ -1025,16 +1025,16 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict], use_cache: bool = True
 #             figure_category = figure_category_match.group(1).strip()
 #             return figure_description, expert_role, figure_category
 #         else:
-#             print("⚠️ Could not parse structured response, returning raw response")
+#             print("[WARN] Could not parse structured response, returning raw response")
 #             print(f"Response: {response}")
 #             return response, "Technical expert", "Other"
 #     except Exception as e:
-#         print(f"⚠️ Error parsing response: {e}")
+#         print(f"[WARN] Error parsing response: {e}")
 #         return response, "Technical expert", "Other"
 
 # def generate_qa_pair(image_path: str, figure_description: str, expert_role: str) -> Tuple[str, str]:
 #     """Generate Q&A pair using image, description, and role"""
-#     print("❓ Generating Q&A pair...")
+#     print("[?] Generating Q&A pair...")
     
 #     # Use the qa_single_artifact prompt with example images
 #     example_paths = [fie_loc1, fie_loc2, fie_loc3, fie_loc4]
@@ -1063,15 +1063,15 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict], use_cache: bool = True
 #             answer = answer_match.group(1).strip()
 #             return question, answer
 #         else:
-#             print("⚠️ Could not parse Q&A from response, returning raw response")
+#             print("[WARN] Could not parse Q&A from response, returning raw response")
 #             return response, ""
 #     except Exception as e:
-#         print(f"⚠️ Error parsing Q&A: {e}")
+#         print(f"[WARN] Error parsing Q&A: {e}")
 #         return response, ""
 
 # def verify_qa_requires_image(image_path: str, question: str, answer: str) -> str:
 #     """Verify if the question requires the image to be answered"""
-#     print("🔍 Verifying if question requires image context...")
+#     print("[Scan] Verifying if question requires image context...")
     
 #     prompt = f"""You are evaluating whether a question requires visual information from an image to be answered correctly.
 
@@ -1095,7 +1095,7 @@ def call_vlm_interweaved(prompt: str, chunks: List[Dict], use_cache: bool = True
 
 # def process_image_for_qa_dataset(image_path: str) -> dict:
 #     """Complete pipeline: extract role context, generate Q&A pair, and verify"""
-#     print(f"🔄 Processing image for QA dataset: {image_path}")
+#     print(f"[Processing] Processing image for QA dataset: {image_path}")
     
 #     # Stage 1: Extract role context
 #     figure_description, expert_role, figure_category = extract_role_context(image_path)
@@ -1208,18 +1208,18 @@ if __name__ == "__main__":
             {
                 "content": r"""Chunk 2: This flowchart illustrates the procedure for determining the IES classification and losses for a Power Drive System (PDS). The process begins by selecting a determination method: Test or Calculation. 
                                 
-                            The Test path (left) involves measuring input/output directly to find PDS losses (PL,PDS​), then adding required uncertainties according to Formula (22). 
+                            The Test path (left) involves measuring input/output directly to find PDS losses (PL,PDS), then adding required uncertainties according to Formula (22). 
                             
                             The Calculation path (right) uses datasheet values. It calculates absolute motor losses and CDM (Complete Drive Module) losses separately. Depending on whether the operating point is at full load (100; 100) or part load, different formulas (12 or 13) are used to sum these into the total absolute PDS losses. 
                             
-                            Both paths converge to calculate the relative PDS losses by comparing absolute losses to the rated motor power (PR,M​). Finally, this relative value is used to assign the specific IES class via Formula (20). Notes indicate this cycle repeats for various speed and torque adjustments. """,
+                            Both paths converge to calculate the relative PDS losses by comparing absolute losses to the rated motor power (PR,M). Finally, this relative value is used to assign the specific IES class via Formula (20). Notes indicate this cycle repeats for various speed and torque adjustments. """,
                 "chunk_type": "text",
                 "artifact": "None"
             },
             {
-                "content": r"""Chunk 3: This flowchart outlines the procedure for determining the IE classification and losses for a Complete Drive Module (CDM). The process begins by establishing the rated output current (Ir,out​) and equivalent apparent power (Sr,equ​), either from specifications or mechanical power ratings. 
+                "content": r"""Chunk 3: This flowchart outlines the procedure for determining the IE classification and losses for a Complete Drive Module (CDM). The process begins by establishing the rated output current (Ir,out) and equivalent apparent power (Sr,equ), either from specifications or mechanical power ratings. 
 
-                            Users then select a determination method: Test (measuring via calorimetric or input-output methods) or Calculation (using formulas or manufacturer models). Both paths involve verifying load conditions and power factors (cosΦ) to calculate absolute CDM losses (PL,CDM​), incorporating required uncertainties. Finally, losses are adjusted if the CDM has modified characteristics, and the result is used to determine the specific IE class. The process repeats for various part-load operating points.""",
+                            Users then select a determination method: Test (measuring via calorimetric or input-output methods) or Calculation (using formulas or manufacturer models). Both paths involve verifying load conditions and power factors (cosPhi) to calculate absolute CDM losses (PL,CDM), incorporating required uncertainties. Finally, losses are adjusted if the CDM has modified characteristics, and the result is used to determine the specific IE class. The process repeats for various part-load operating points.""",
                 "chunk_type": "text",
                 "artifact": "None"
             },

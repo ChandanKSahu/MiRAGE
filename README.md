@@ -24,7 +24,7 @@
 
 Explore the step-by-step multihop QA generation process:
 
-**[🔗 View Interactive Visualization](https://htmlpreview.github.io/?https://github.com/ChandanKSahu/MiRAGE/blob/main/assets/mirage_qa_gen.html)**
+**[ View Interactive Visualization](https://htmlpreview.github.io/?https://github.com/ChandanKSahu/MiRAGE/blob/main/assets/mirage_qa_gen.html)**
 
 ## Key Features
 
@@ -229,9 +229,9 @@ run_mirage \
 ### Auto-Selected Reranker
 
 The reranker is automatically selected based on your backend/API keys:
-- **Gemini backend/key** → Uses Gemini VLM reranker (fast, API-based, uses same model as VLM config)
-- **OpenAI backend** → Uses Gemini VLM if Gemini key available, else MonoVLM
-- **No API keys** → Falls back to MonoVLM (local model, slower)
+- **Gemini backend/key** -> Uses Gemini VLM reranker (fast, API-based, uses same model as VLM config)
+- **OpenAI backend** -> Uses Gemini VLM if Gemini key available, else MonoVLM
+- **No API keys** -> Falls back to MonoVLM (local model, slower)
 
 You can override with `--reranker-model` flag (options: `gemini_vlm`, `monovlm`, `text_embedding`).
 
@@ -361,7 +361,7 @@ run_mirage --config config.yaml --input data/documents --output output/results
 
 MiRAGE uses LLM/VLM APIs extensively. Two operations consume the most tokens:
 
-### 1. Document Processing (PDF/HTML → Markdown → Chunks)
+### 1. Document Processing (PDF/HTML -> Markdown -> Chunks)
 
 **Cost:** High (processes every page with VLM for image/table extraction)
 
