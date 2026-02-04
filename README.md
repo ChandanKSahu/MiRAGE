@@ -460,10 +460,6 @@ output/my_dataset/
 }
 ```
 
-<p align="center">
-  <img src="assets/ample question-answer pair generated.png" alt="Sample QA Pair" width="100%">
-</p>
-
 ### Multihop QA Visualization
 
 See the [Interactive Process Flow](#interactive-process-flow) at the top of this page for a step-by-step visualization showing:
