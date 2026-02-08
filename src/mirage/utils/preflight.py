@@ -201,14 +201,43 @@ def check_vlm_call() -> CheckResult:
 def check_embedding_model() -> CheckResult:
     """Test embedding model loading and inference."""
     try:
+        import os
         from mirage.core.config import get_embedding_config
         embed_config = get_embedding_config()
-        model_name = embed_config.get('model', 'bge_m3')
+        # Check environment variable override first (used by demo)
+        model_name = os.environ.get("MIRAGE_EMBEDDING_MODEL") or embed_config.get('model', 'bge_m3')
         
         test_text = "This is a test sentence for embedding."
         
+        # Handle Gemini API-based embeddings (no local GPU required)
+        if model_name in ["gemini", "gemini-embedding-001"]:
+            from mirage.core.config import get_backend_config
+            backend_config = get_backend_config()
+            api_key = os.environ.get("GEMINI_API_KEY") or backend_config.get("gemini", {}).get("api_key")
+            if not api_key:
+                return CheckResult(
+                    name="Embedding Model",
+                    status=CheckStatus.FAIL,
+                    message="Gemini API key required for Gemini embeddings",
+                    details={"model": model_name}
+                )
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=test_text,
+                task_type="retrieval_document"
+            )
+            embedding = result['embedding']
+            return CheckResult(
+                name="Embedding Model",
+                status=CheckStatus.PASS,
+                message="Gemini API embeddings working",
+                details={"model": "gemini-text-embedding-004", "embedding_dim": len(embedding)}
+            )
+        
         # Handle "auto" or "multimodal" - use fallback logic
-        if model_name in ["auto", "multimodal", "", None]:
+        elif model_name in ["auto", "multimodal", "", None]:
             from mirage.embeddings.models import get_multimodal_embedder
             gpus = embed_config.get('gpus', None)
             embedder, actual_model, is_multimodal = get_multimodal_embedder(gpus=gpus)

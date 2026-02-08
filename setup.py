@@ -2,6 +2,7 @@
 MiRAGE - Setup Configuration
 
 Install with: pip install -e .
+Or from PyPI: pip install mirage-benchmark
 """
 
 from setuptools import setup, find_packages
@@ -13,7 +14,7 @@ long_description = readme_path.read_text(encoding="utf-8") if readme_path.exists
 
 setup(
     name="mirage-benchmark",
-    version="1.2.5",
+    version="1.2.7",
     author="MiRAGE Authors",
     author_email="contact@example.com",
     description="A Multiagent Framework for Generating Multimodal Multihop QA Datasets for RAG Evaluation",
@@ -28,42 +29,72 @@ setup(
     # Python version requirement
     python_requires=">=3.9",
     
-    # Dependencies
+    # Core dependencies - everything needed for `runmirage` to work out of the box
     install_requires=[
+        # === Core ML/DL ===
         "torch>=2.0.0",
-        "faiss-cpu>=1.7.0",
+        "torchvision>=0.15.0",
         "numpy>=1.21.0",
-        "Pillow>=9.0.0",
+        "scipy>=1.10.0",
+        "Pillow>=10.0.0",
+
+        # === Transformers & Embeddings ===
         "transformers>=4.44.0",
-        "huggingface_hub>=0.16.0",
-        "tqdm>=4.65.0",
-        "pyyaml>=6.0",
-        "requests>=2.28.0",
-        "aiohttp>=3.8.0",
+        "huggingface_hub>=0.23.2,<1.0",
         "sentence-transformers>=2.2.0",
+        "safetensors>=0.4.0",
+        "tokenizers>=0.20.0",
+
+        # === Quantization & Acceleration ===
+        "bitsandbytes>=0.43.0",
+        "accelerate>=0.20.0",
+        "peft>=0.11.0",
+
+        # === Multimodal Embeddings ===
+        "colpali-engine>=0.3.0",
+
+        # === PDF & Document Processing ===
+        "docling>=2.0.0",
+        "docling-core>=2.0.0",
+        "pypdfium2>=4.0.0",
+        "easyocr>=1.7.0",
+        "opencv-python-headless>=4.8.0",
+
+        # === Vector Search & Retrieval ===
+        "faiss-cpu>=1.7.0",
+
+        # === Topic Modeling & Visualization ===
         "bertopic>=0.16.0",
         "umap-learn>=0.5.0",
+        "datamapplot>=0.4.0",
+        "plotly>=5.0.0",
+        "matplotlib>=3.5.0",
+
+        # === Data & Config ===
         "pandas>=1.5.0",
         "scikit-learn>=1.0.0",
+        "pyyaml>=6.0",
+        "tqdm>=4.65.0",
+
+        # === Networking ===
+        "requests>=2.28.0",
+        "aiohttp>=3.8.0",
+
+        # === Gemini API ===
+        "google-generativeai>=0.5.0",
     ],
     
     # Optional dependencies
     extras_require={
-        "gpu": [
-            # Note: faiss-gpu must be installed via conda: conda install -c pytorch faiss-gpu
-            "bitsandbytes>=0.43.0",
-            "accelerate>=0.20.0",
-        ],
-        "pdf": [
-            "docling>=2.0.0",
-            "pypdfium2>=4.0.0",
-            "matplotlib>=3.5.0",
-        ],
         "eval": [
             "ragas>=0.1.0",
             "datasets>=2.0.0",
+            "langchain>=0.1.0",
+            "langchain-core>=0.1.0",
+            "langchain-community>=0.0.10",
             "langchain-google-genai>=1.0.0",
             "langchain-openai>=0.1.0",
+            "tiktoken>=0.5.0",
         ],
         "dev": [
             "pytest>=7.0.0",
@@ -73,18 +104,15 @@ setup(
             "build>=0.10.0",
         ],
         "all": [
-            # GPU (faiss-gpu via conda)
-            "bitsandbytes>=0.43.0",
-            "accelerate>=0.20.0",
-            # PDF
-            "docling>=2.0.0",
-            "pypdfium2>=4.0.0",
-            "matplotlib>=3.5.0",
             # Eval
             "ragas>=0.1.0",
             "datasets>=2.0.0",
+            "langchain>=0.1.0",
+            "langchain-core>=0.1.0",
+            "langchain-community>=0.0.10",
             "langchain-google-genai>=1.0.0",
             "langchain-openai>=0.1.0",
+            "tiktoken>=0.5.0",
             # Dev
             "pytest>=7.0.0",
             "flake8>=5.0.0",

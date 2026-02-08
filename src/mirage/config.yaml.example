@@ -1,0 +1,285 @@
+# =============================================================================
+# MiRAGE Configuration Template
+# Multimodal RAG Evaluation Dataset Generator
+# =============================================================================
+# 
+# Copy this file to config.yaml and fill in your values:
+#   cp config.yaml.example config.yaml
+#
+# For API keys, you can either:
+#   1. Set environment variables (recommended for security):
+#      export GEMINI_API_KEY="your-key-here"
+#      export OPENAI_API_KEY="your-key-here"
+#   2. Or specify file paths below
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Backend Configuration
+# -----------------------------------------------------------------------------
+backend:
+  # Choose your LLM/VLM provider: "GEMINI", "OPENAI", or "OLLAMA"
+  active: GEMINI
+  
+  # Ollama (local models)
+  ollama:
+    url: http://127.0.0.1:11434/api/chat
+    llm_model: llama3.1:8b           # Text model
+    vlm_model: llava:13b             # Vision model
+    num_ctx: 16384
+    temperature: 0.0
+    stream: false
+  
+  # Google Gemini
+  gemini:
+    url: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+    # Option 1: File path to API key
+    api_key_path: ~/.config/gemini/api_key.txt
+    # Option 2: Environment variable (set GEMINI_API_KEY)
+    llm_model: gemini-2.0-flash
+    vlm_model: gemini-2.0-flash
+    timeout: 300
+    embedding_model: gemini-embedding-001
+  
+  # OpenAI
+  openai:
+    url: https://api.openai.com/v1/chat/completions
+    # Option 1: File path to API key
+    api_key_path: ~/.config/openai/api_key.txt
+    # Option 2: Environment variable (set OPENAI_API_KEY)
+    llm_model: gpt-4o-mini
+    vlm_model: gpt-4o
+    timeout: 300
+
+# -----------------------------------------------------------------------------
+# Rate Limiting (adjust based on your API tier)
+# -----------------------------------------------------------------------------
+rate_limiting:
+  requests_per_minute: 60
+  burst_size: 15
+
+# -----------------------------------------------------------------------------
+# Input/Output Paths
+# -----------------------------------------------------------------------------
+paths:
+  # Input: Either a directory of PDFs/HTMLs or a pre-processed chunks file
+  input_pdf_dir: data/documents          # Directory with source documents
+  input_chunks_file: null                 # Or: path/to/chunks.json
+  
+  # Output directory for results
+  output_dir: output/my_dataset
+
+# -----------------------------------------------------------------------------
+# Processing Limits
+# -----------------------------------------------------------------------------
+processing:
+  max_pdfs: null           # null = process all, or set integer limit
+  sort_by_size: true       # Process smallest files first (good for testing)
+  max_chunks: null         # null = process all chunks
+
+# -----------------------------------------------------------------------------
+# QA Generation Control
+# -----------------------------------------------------------------------------
+qa_generation:
+  num_qa_pairs: 1000       # Target number of QA pairs (null = unlimited)
+  type: multihop           # Options: 'multihop', 'multimodal', 'text', 'mix'
+
+# -----------------------------------------------------------------------------
+# Shuffling (for reproducibility)
+# -----------------------------------------------------------------------------
+shuffling:
+  enabled: true
+  seed: 42
+
+# -----------------------------------------------------------------------------
+# Embedding Configuration
+# -----------------------------------------------------------------------------
+embedding:
+  model: nomic             # Options: "nomic", "bge_m3", "gemini"
+  cache_embeddings: true
+  batch_size: 8            # Reduce if OOM errors
+  gpus: [0]                # GPU IDs for embedding
+  
+  models:
+    gemini:
+      name: gemini-embedding-001
+      output_dimensionality: 768
+      api_based: true
+    nomic:
+      name: nomic-ai/nomic-embed-multimodal-7b
+      quantization:
+        load_in_4bit: true
+        bnb_4bit_compute_dtype: bfloat16
+        bnb_4bit_use_double_quant: true
+      torch_dtype: bfloat16
+      attn_implementation: sdpa
+    bge_m3:
+      name: BAAI/bge-m3
+    bge_large:
+      name: BAAI/bge-large-en-v1.5
+    minilm:
+      name: sentence-transformers/all-MiniLM-L6-v2
+
+# -----------------------------------------------------------------------------
+# Reranker Configuration
+# -----------------------------------------------------------------------------
+reranker:
+  default: gemini_vlm      # Options: "gemini_vlm", "monovlm", "text_embedding"
+  
+  models:
+    gemini_vlm:
+      model_name: gemini-2.0-flash
+      api_based: true
+      max_tokens: 500
+      timeout: 180
+    monovlm:
+      model_name: lightonai/MonoQwen2-VL-v0.1
+      processor_name: Qwen/Qwen2-VL-2B-Instruct
+      torch_dtype: bfloat16
+    text_embedding:
+      model_name: BAAI/bge-large-en-v1.5
+
+# -----------------------------------------------------------------------------
+# QA Correction (auto-fix failed QA pairs)
+# -----------------------------------------------------------------------------
+qa_correction:
+  enabled: true
+  max_attempts: 1
+
+# -----------------------------------------------------------------------------
+# Context Retrieval
+# -----------------------------------------------------------------------------
+retrieval:
+  multihop:
+    max_depth: 2          # Max retrieval iterations (null = unlimited)
+    max_breadth: 5         # Max search queries per iteration
+    chunks_per_search: 2   # Chunks retrieved per query
+    log_details: true
+    chunk_addition_mode: RELATED  # or "EXPLANATORY"
+  
+  simple:
+    method: top_k
+    top_k: 20
+    top_p: 0.9
+    rerank_top_k: 10
+    context_size: 2
+
+# -----------------------------------------------------------------------------
+# Deduplication
+# -----------------------------------------------------------------------------
+deduplication:
+  question_similarity_threshold: 0.75
+  answer_similarity:
+    high: 0.95             # Exact duplicates
+    medium: 0.85           # Partial overlap
+    low: 0.70              # Related items
+  min_community_size: 2
+  alpha: 0.6               # Semantic vs lineage balance
+
+# -----------------------------------------------------------------------------
+# Parallel Processing
+# -----------------------------------------------------------------------------
+parallel:
+  num_workers: 4           # CPU workers for document conversion
+  available_gpus: [0]      # GPUs for parallel processing
+  qa_max_workers: 6        # Workers for QA generation
+  dedup_max_workers: 4     # Workers for deduplication
+
+# -----------------------------------------------------------------------------
+# PDF Processing (Docling)
+# -----------------------------------------------------------------------------
+pdf_processing:
+  input_path: data/documents
+  output_dir: output/markdown
+  image_resolution_scale: 2.0
+  model_name: gemini-2.0-flash
+  num_threads: 4
+  cuda_device_id: 0
+  pipeline_options:
+    do_picture_classification: false
+    do_picture_description: true
+    do_ocr: true
+    do_code_enrichment: true
+    do_formula_enrichment: true
+    do_table_structure: true
+    generate_table_images: true
+
+# -----------------------------------------------------------------------------
+# Semantic Chunking
+# -----------------------------------------------------------------------------
+chunking:
+  window_size: 20000       # Characters per window
+  overlap_size: 2000       # Overlap between windows
+
+# -----------------------------------------------------------------------------
+# Domain & Expert Role (auto-detect if null)
+# -----------------------------------------------------------------------------
+domain_expert:
+  expert_persona: null     # e.g., "Motor Test Engineer"
+  domain: null             # e.g., "Electrical Engineering - Electric Motors"
+  use_multimodal_embeddings: true
+  output_dir: output/domain_analysis
+
+# -----------------------------------------------------------------------------
+# BERTopic Configuration (for domain detection)
+# -----------------------------------------------------------------------------
+bertopic:
+  umap:
+    n_neighbors: 15
+    n_components: 5
+    min_dist: 0.0
+    metric: cosine
+    random_state: 42
+  umap_2d:
+    n_neighbors: 10
+    n_components: 2
+    min_dist: 0.0
+    metric: cosine
+  vectorizer:
+    stop_words: english
+    min_df: 2
+    ngram_range: [1, 2]
+  mmr:
+    diversity: 0.5
+  calculate_probabilities: false
+  verbose: true
+
+# -----------------------------------------------------------------------------
+# Evaluation
+# -----------------------------------------------------------------------------
+evaluation:
+  run_evaluation: true
+  sample_size: null        # null = evaluate all
+  gemini_api_key_path: ~/.config/gemini/api_key.txt
+  run_context_necessity: true
+  use_optimized_metrics: true  # 3-5x faster
+  
+  models:
+    gemini:
+      model_name: gemini-2.0-flash
+      embedding_model: gemini-embedding-001
+      temperature: 0
+    openai:
+      model_name: gpt-4-turbo
+      embedding_model: text-embedding-3-small
+  use_gemini: true
+
+# -----------------------------------------------------------------------------
+# FAISS Index
+# -----------------------------------------------------------------------------
+faiss:
+  index_type: IndexFlatIP
+  normalize_l2: true
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+logging:
+  level: INFO
+
+# -----------------------------------------------------------------------------
+# Retry Configuration
+# -----------------------------------------------------------------------------
+retry:
+  initial_wait: 2
+  max_wait: 60
+  max_attempts: 3

@@ -39,11 +39,20 @@ from docling.utils.export import generate_multimodal_pages
 
 
 def load_config(config_path="config.yaml"):
-    """Load configuration from YAML file."""
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+    """Load configuration from YAML file. Returns defaults if file not found."""
+    from pathlib import Path as _Path
+    path = _Path(config_path)
+    if not path.exists():
+        # Try the core config loader which has fallback defaults
+        try:
+            from mirage.core.config import load_config as _core_load_config
+            return _core_load_config()
+        except Exception:
+            return {}
+    with open(path, 'r') as f:
+        return yaml.safe_load(f) or {}
 
-# Load config
+# Load config (gracefully falls back to defaults if config.yaml is not present)
 CONFIG = load_config()
 PDF_CONFIG = CONFIG.get("pdf_processing", {})
 BACKEND_CONFIG = CONFIG.get("backend", {})

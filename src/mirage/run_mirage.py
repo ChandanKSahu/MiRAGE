@@ -105,6 +105,13 @@ Environment Variables:
         help="Path to configuration file (default: config.yaml)"
     )
     
+    # Setup options
+    parser.add_argument(
+        "--init-config",
+        action="store_true",
+        help="Generate a config.yaml file in the current directory and exit"
+    )
+    
     # Pipeline options
     parser.add_argument(
         "--preflight",
@@ -173,7 +180,7 @@ Environment Variables:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.2.5"
+        version="%(prog)s 1.2.7"
     )
     
     return parser.parse_args()
@@ -270,6 +277,28 @@ def main():
     logger.info("=" * 70)
     logger.info("  MiRAGE: Multimodal Multihop RAG Evaluation Dataset Generator")
     logger.info("=" * 70)
+    
+    # Handle --init-config: copy config.yaml.example to config.yaml
+    if args.init_config:
+        import shutil
+        from pathlib import Path
+        example_config = Path(__file__).parent / "config.yaml.example"
+        target_config = Path.cwd() / "config.yaml"
+        if target_config.exists():
+            logger.warning(f"config.yaml already exists at {target_config}")
+            logger.info("Remove it first if you want to regenerate.")
+            sys.exit(1)
+        if example_config.exists():
+            shutil.copy2(example_config, target_config)
+            logger.info(f"Generated config.yaml at {target_config}")
+            logger.info("Edit this file to configure your pipeline settings.")
+        else:
+            logger.error("config.yaml.example not found in package. Generating minimal config...")
+            with open(target_config, 'w') as f:
+                f.write("# MiRAGE Configuration\n# See https://github.com/ChandanKSahu/MiRAGE for documentation\n\n")
+                f.write("backend:\n  active: GEMINI\n  gemini:\n    llm_model: gemini-2.0-flash\n    vlm_model: gemini-2.0-flash\n")
+            logger.info(f"Generated minimal config.yaml at {target_config}")
+        sys.exit(0)
     
     # Setup environment BEFORE importing main.py
     # This ensures MIRAGE_OUTPUT_DIR is set before main.py module-level code runs

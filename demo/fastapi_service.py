@@ -20,10 +20,15 @@ import sys
 # ============================================================================
 # IMPORTANT: Set device config BEFORE importing torch
 # ============================================================================
-# Use CPU for demo to avoid GPU conflicts (can be changed via env var)
-DEMO_DEVICE = os.environ.get("MIRAGE_DEMO_DEVICE", "cpu")
+# Use CUDA/GPU when available for better performance and memory efficiency
+# Fall back to CPU only if explicitly requested or GPU unavailable
+DEMO_DEVICE = os.environ.get("MIRAGE_DEMO_DEVICE", "auto")  # auto = use GPU if available
 if DEMO_DEVICE == "cpu":
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# If "auto" or "cuda", let PyTorch detect available GPUs
+
+# Use API-based Gemini embeddings for demo (reduces local memory usage)
+os.environ["MIRAGE_EMBEDDING_MODEL"] = os.environ.get("MIRAGE_EMBEDDING_MODEL", "gemini")
 
 # Set HuggingFace cache to persist downloaded models
 HF_CACHE_DIR = os.path.expanduser("~/.cache/huggingface")
@@ -55,7 +60,7 @@ DEMO_MAX_PAGES = int(os.environ.get("MIRAGE_DEMO_MAX_PAGES", 20))
 DEMO_MAX_QA_PAIRS = int(os.environ.get("MIRAGE_DEMO_MAX_QA_PAIRS", 50))
 DEMO_MAX_DEPTH = 2  # Fixed for demo - prevents excessive API calls
 DEMO_MAX_BREADTH = 5  # Fixed for demo
-DEMO_MAX_WORKERS = 2  # Reduced workers for demo
+DEMO_MAX_WORKERS = 1  # Single worker to reduce memory usage
 DEMO_MAX_FILE_SIZE_MB = 50  # Maximum file size in MB
 DEMO_TEMP_DIR = Path(tempfile.gettempdir()) / "mirage_demo"
 
@@ -68,7 +73,7 @@ DEMO_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(
     title="MiRAGE Demo API",
     description="Backend API for MiRAGE QA Dataset Generation Demo",
-    version="1.2.6"
+    version="1.2.7"
 )
 
 # Enable CORS for Gradio frontend
@@ -204,7 +209,9 @@ def process_documents(
         
         # Set API key based on backend
         if backend.lower() == "gemini":
+            # Set both GEMINI_API_KEY and GOOGLE_API_KEY (different Google libs use different vars)
             os.environ["GEMINI_API_KEY"] = api_key
+            os.environ["GOOGLE_API_KEY"] = api_key
             os.environ["MIRAGE_BACKEND"] = "gemini"
         elif backend.lower() == "openai":
             os.environ["OPENAI_API_KEY"] = api_key
@@ -330,7 +337,7 @@ async def root():
     """Health check endpoint."""
     return {
         "service": "MiRAGE Demo API",
-        "version": "1.2.6",
+        "version": "1.2.7",
         "status": "running",
         "limits": {
             "max_pages": DEMO_MAX_PAGES,
