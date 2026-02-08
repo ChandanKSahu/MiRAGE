@@ -69,10 +69,11 @@ pip install -e .
 ### With Optional Dependencies
 
 ```bash
-pip install mirage-benchmark[pdf]   # PDF processing (docling, matplotlib)
-pip install mirage-benchmark[eval]  # Evaluation metrics (ragas)
-pip install mirage-benchmark[all]   # All pip dependencies
+pip install mirage-benchmark[eval]  # Evaluation metrics (ragas, langchain)
+pip install mirage-benchmark[all]   # All optional dependencies
 ```
+
+> **Note**: As of v1.2.7, all core dependencies (PDF processing, embeddings, OCR, visualization) are included in the base install. Only evaluation metrics (ragas, langchain) are optional.
 
 ### GPU Support (FAISS-GPU)
 
@@ -87,7 +88,7 @@ conda activate mirage
 conda install -c pytorch faiss-gpu
 
 # Then install MiRAGE
-pip install mirage-benchmark[gpu]
+pip install mirage-benchmark
 ```
 
 ## Quick Start
@@ -405,6 +406,7 @@ Use `print_token_stats()` or check the pipeline summary to monitor actual token 
 | `--backend` | `-b` | Backend: gemini, openai, ollama | gemini |
 | `--model` | | Model name | Auto |
 | `--config` | `-c` | Config file path | config.yaml |
+| `--init-config` | | Generate a config.yaml in current directory | - |
 | `--num-qa-pairs` | | Target QA pairs to generate | 10 |
 | `--max-depth` | | Maximum depth for multi-hop retrieval | 2 |
 | `--embedding-model` | | Embedding model: `auto`, `qwen3_vl`, `nomic`, `bge_m3` | auto |
