@@ -53,6 +53,10 @@ from pydantic import BaseModel
 # Add src to path for local imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+# Setup device environment (auto-detect GPU/CPU, suppress pin_memory warnings)
+from mirage.utils.device import setup_device_environment
+setup_device_environment()
+
 # ============================================================================
 # Configuration - Demo Limits (to control resource consumption)
 # ============================================================================
@@ -73,7 +77,7 @@ DEMO_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(
     title="MiRAGE Demo API",
     description="Backend API for MiRAGE QA Dataset Generation Demo",
-    version="1.2.7"
+    version="1.3.0"
 )
 
 # Enable CORS for Gradio frontend
@@ -337,7 +341,7 @@ async def root():
     """Health check endpoint."""
     return {
         "service": "MiRAGE Demo API",
-        "version": "1.2.7",
+        "version": "1.3.0",
         "status": "running",
         "limits": {
             "max_pages": DEMO_MAX_PAGES,

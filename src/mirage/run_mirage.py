@@ -180,7 +180,7 @@ Environment Variables:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.2.7"
+        version="%(prog)s 1.3.0"
     )
     
     return parser.parse_args()
@@ -273,10 +273,15 @@ def main():
     )
     logger = logging.getLogger(__name__)
     
+    # Setup device environment (auto-detect GPU/CPU, suppress spurious warnings)
+    from mirage.utils.device import setup_device_environment, is_gpu_available
+    device = setup_device_environment()
+    
     # Print banner
     logger.info("=" * 70)
     logger.info("  MiRAGE: Multimodal Multihop RAG Evaluation Dataset Generator")
     logger.info("=" * 70)
+    logger.info(f"  Device: {device} {'(GPU available)' if is_gpu_available() else '(CPU mode)'}")
     
     # Handle --init-config: copy config.yaml.example to config.yaml
     if args.init_config:

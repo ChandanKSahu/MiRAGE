@@ -333,15 +333,15 @@ def _create_reranker(reranker_type: str):
 def _load_sentence_transformer(model_name: str):
     """Load SentenceTransformer safely, avoiding meta tensor issues"""
     from sentence_transformers import SentenceTransformer
-    import torch
+    from mirage.utils.device import get_device
     
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = get_device()
     
     # Load to CPU first to avoid meta tensor issues, then move to GPU
     # Some models use device_map internally which creates meta tensors
     try:
         model = SentenceTransformer(model_name, device='cpu')
-        if device == 'cuda':
+        if device.startswith('cuda'):
             model = model.to(device)
         return model
     except Exception as e:
@@ -822,10 +822,10 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
         embedder.model.eval()
     
     # Clear GPU cache before starting
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        import gc
-        gc.collect()
+    from mirage.utils.device import clear_gpu_cache
+    clear_gpu_cache()
+    import gc
+    gc.collect()
     
     embeddings = []
     chunk_ids = []
@@ -857,8 +857,9 @@ def embed_all_chunks(chunks: list, chunks_file: str, embeddings_dir: str) -> tup
                     try:
                         # Aggressive memory cleanup before each embedding
                         gc.collect()
-                        torch.cuda.empty_cache()
-                        torch.cuda.synchronize() if torch.cuda.is_available() else None
+                        clear_gpu_cache()
+                        from mirage.utils.device import gpu_sync
+                        gpu_sync()
                         
                         # Use unified .encode() API
                         embedding = embedder.encode(text, convert_to_numpy=True)

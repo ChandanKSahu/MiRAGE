@@ -50,17 +50,13 @@ def _get_embedder_for_model(model_name: str):
         # Get GPU configuration from config
         try:
             from mirage.core.config import get_embedding_config
+            from mirage.utils.device import get_device
             embed_config = get_embedding_config()
             gpus = embed_config.get('gpus', None)
-            # Determine device: use first GPU from list, or cuda:0, or cpu
-            if gpus and len(gpus) > 0:
-                device = f"cuda:{gpus[0]}"
-            elif torch.cuda.is_available():
-                device = "cuda:0"
-            else:
-                device = "cpu"
+            device = get_device(gpus)
         except:
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            from mirage.utils.device import get_device
+            device = get_device()
             gpus = None
         
         # Load the embedder (only one thread will do this)

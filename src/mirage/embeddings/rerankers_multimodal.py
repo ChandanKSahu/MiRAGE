@@ -5,6 +5,8 @@ from typing import List, Optional, Dict, Tuple
 from pathlib import Path
 from PIL import Image
 
+from mirage.utils.device import get_device, is_gpu_available
+
 class BaseReranker(ABC):
     """Abstract base class for image-based rerankers"""
     
@@ -71,7 +73,7 @@ class MMR5Reranker(BaseReranker):
                 print("[WARN] flash_attn not available. Falling back to default attention implementation.")
             
             # Load without device_map="auto" to avoid meta tensor issues in parallel processing
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.device = get_device()
             self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                 model_name,
                 torch_dtype=torch.bfloat16,
@@ -210,8 +212,8 @@ class Florence2Reranker(BaseReranker):
         
         print(f"Loading Florence-2: {model_name}")
         
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+        self.device = get_device()
+        self.torch_dtype = torch.float16 if is_gpu_available() else torch.float32
         
         # Note: When using quantization, device_map is needed for BitsAndBytes
         # When not using quantization, load explicitly to avoid meta tensor issues
@@ -450,8 +452,8 @@ class MonoVLMReranker(ChunkReranker):
         print(f"Loading MonoVLM: {model_name}")
         from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
         
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        self.device = get_device()
+        self.torch_dtype = torch.bfloat16 if is_gpu_available() else torch.float32
         
         self.processor = AutoProcessor.from_pretrained(processor_name, trust_remote_code=True)
         
@@ -580,7 +582,7 @@ class TextEmbeddingReranker(ChunkReranker):
         from sentence_transformers import SentenceTransformer
         
         print(f"Loading text embedding model: {model_name}")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
         
         self.model = SentenceTransformer(model_name, device=self.device)
         print(f"[OK] Text embedding model loaded on {self.device}")

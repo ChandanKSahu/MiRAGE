@@ -9,6 +9,8 @@ import os
 import requests
 import base64
 
+from mirage.utils.device import get_device, is_gpu_available, clear_gpu_cache
+
 # Text Embedding Configuration
 EMBEDDING_MODELS_TEXT = {
     "bge_m3": "BAAI/bge-m3" 
@@ -19,11 +21,11 @@ def get_best_embedding_model():
     return EMBEDDING_MODELS_TEXT["bge_m3"]
 
 def get_device_map_for_gpus(gpus: Optional[List[int]] = None) -> str:
-    """Returns device_map string for specified GPUs"""
-    if gpus and len(gpus) > 0:
-        # Use first specified GPU as primary
-        return f"cuda:{gpus[0]}"
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    """Returns device_map string for specified GPUs.
+    
+    Uses centralized device detection - prefers GPU, falls back to CPU.
+    """
+    return get_device(gpus)
 
 
 def _resolve_local_model_path(model_name: str) -> str:
@@ -166,11 +168,10 @@ class NomicVLEmbed(BaseMultimodalEmbedder):
         self._setup_hf_auth()
         
         # Use specified GPUs or default to cuda
-        self.device = get_device_map_for_gpus(gpus)
+        self.device = get_device(gpus)
         self.gpus = gpus
         
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        clear_gpu_cache()
         
         # Read attention implementation from config (default to sdpa for stability)
         attn_impl = "sdpa"  # Default to PyTorch native attention
@@ -249,10 +250,9 @@ class Qwen2VLEmbed(BaseMultimodalEmbedder):
         from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
         
         print(f"Loading Qwen2-VL: {model_name}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        clear_gpu_cache()
         
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
         
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -333,10 +333,9 @@ class Qwen3VLEmbed(BaseMultimodalEmbedder):
         resolved_path = _resolve_local_model_path(model_name)
         
         print(f"Loading Qwen3-VL: {resolved_path}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        clear_gpu_cache()
         
-        self.device = get_device_map_for_gpus(gpus) if gpus else ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device(gpus)
         self.gpus = gpus
         
         # NOTE: Qwen3-VL-Embedding-8B has issues with bitsandbytes 4-bit quantization
@@ -473,7 +472,7 @@ class VLMDescriptionEmbed(BaseMultimodalEmbedder):
         
         print(f"Loading VLM Description Embedder with text model: {text_model_name}")
         
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
         
         # Load text embedding model
         self.text_model = SentenceTransformer(text_model_name, device=self.device)
@@ -560,10 +559,9 @@ class BGEVLEmbed(BaseMultimodalEmbedder):
         from transformers import AutoModel
         
         print(f"Loading BGE-VL-v1.5: {model_name}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        clear_gpu_cache()
         
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_device()
         
         self.model = AutoModel.from_pretrained(
             model_name,

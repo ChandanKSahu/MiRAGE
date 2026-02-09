@@ -403,7 +403,8 @@ def deduplicate_dataset():
     # 3. Load Embedding Model & Embed
     model_name = get_best_embedding_model()
     print(f"Loading embedding model: {model_name}")
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    from mirage.utils.device import get_device
+    device = get_device()
     embedder = SentenceTransformer(model_name, device=device)
     
     print(f"Generating question embeddings for {len(questions)} QA pairs...")

@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.2.7"
+        version="%(prog)s 1.3.0"
     )
     return parser.parse_args()
 
@@ -67,6 +67,10 @@ def main():
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     logger = logging.getLogger(__name__)
+    
+    # Setup device environment (auto-detect GPU/CPU, suppress spurious warnings)
+    from mirage.utils.device import setup_device_environment
+    setup_device_environment()
     
     # Import after parsing to speed up --help
     from mirage.core.llm import setup_logging, BACKEND, LLM_MODEL_NAME, VLM_MODEL_NAME
