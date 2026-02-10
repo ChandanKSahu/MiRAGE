@@ -243,16 +243,16 @@
 </head>
 <body>
     <div class="container">
-        <h1> Multihop QA Visualization</h1>
+        <h1>Multihop QA Visualization</h1>
         <p class="subtitle">Initial Chunk -> Retrieval Iterations -> Context -> Keyword Chain -> QA</p>
         
         <div class="stats">
             <div class="stat">
-                <div class="stat-value">4</div>
+                <div class="stat-value">5</div>
                 <div class="stat-label">Total Chunks</div>
             </div>
             <div class="stat">
-                <div class="stat-value">3</div>
+                <div class="stat-value">4</div>
                 <div class="stat-label">Hops</div>
             </div>
             <div class="stat">
@@ -260,72 +260,73 @@
                 <div class="stat-label">Depth</div>
             </div>
             <div class="stat">
-                <div class="stat-value">10</div>
+                <div class="stat-value">9</div>
                 <div class="stat-label">Keywords</div>
             </div>
         </div>
 
         <div class="section">
-            <div class="section-title"> Initial Chunk</div>
+            <div class="section-title">Initial Chunk</div>
             <div class="initial-chunk">
-                <span class="initial-label">SEED CHUNK - ECE_TRANS_180a21e:47</span>
-                <div class="chunk-content">Or,<br><br>6.1.3.1.2. At least one of the following conditions (a) to (c) is fulfilled:<br><br>- (a) <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">Current</span> and <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">voltage</span> at the input to each <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverter</span> that is powered by the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">REESS</span>  can  be  determined,  and  the  manufacturer  provides  accurate <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1(n) factors</span> representing the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between each input and the corresponding reference point(s).</div>
+                <span class="initial-label">SEED CHUNK - ECE_TRANS_180a21e:5</span>
+                <div class="chunk-content">## I. Statement of technical rationale and justification<br><br>## A. Introduction<br><br>1. Passenger vehicles are commonly assigned a <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">vehicle power rating</span>, which is useful for comparing the performance of different vehicles. <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">Vehicle power rating</span> has also been used for  other  purposes  such  as  vehicle  classification,  customer  information,  insurance,  and taxation.<br>2. Historically, almost every passenger vehicle produced for the consumer market has been powered exclusively by an <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">internal combustion engine (ICE)</span>. The <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">vehicle power rating</span> assigned to these conventional vehicles has customarily been t</div>
             </div>
         </div>
         
         <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title"> Retrieval Iterations</div>
+            <div class="section-title">Retrieval Iterations</div>
 
             <div class="depth-section">
                 <div class="depth-header">
                     <span class="depth-badge">DEPTH 1</span>
                     <span class="depth-status status-incomplete">INCOMPLETE</span>
                 </div>
-                <p class="depth-explanation">The chunk refers to REESS and K1(n) factors without defining them, and assumes knowledge of inverter configurations in an automotive context.</p>
-                <div class="queries-grid" style="grid-template-columns: repeat(3, 1fr);">
+                <p class="depth-explanation">The text mentions WLTP without defining it, which is necessary for complete understanding.</p>
+                <div class="queries-grid" style="grid-template-columns: repeat(2, 1fr);">
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#42a5f5;"> Query 1: REESS definition automotive</div>
-                        <div class="query-chunks">
-<div class="no-chunks">No relevant chunks</div>
-                        </div>
-                    </div>
-
-                    <div class="query-column">
-                        <div class="query-header" style="background:#ff9800;"> Query 2: K1(n) factors electrical conversion efficiency aut...</div>
+                        <div class="query-header" style="background:#42a5f5;">Query 1: WLTP definition</div>
                         <div class="query-chunks">
 
-                            <div class="retrieved-chunk" style="border-color:#ff9800;">
+                            <div class="retrieved-chunk" style="border-color:#42a5f5;">
                                 <div class="chunk-header">
-                                    <span class="chunk-id">ECE_TRANS_180a21e:51</span>
-                                    <span class="chunk-verdict verdict-related">RELATED</span>
+                                    <span class="chunk-id">ECE_TRANS_180a21e:76</span>
+                                    <span class="chunk-verdict verdict-explanatory">EXPLANATORY</span>
                                 </div>
-                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk provides another condition related to K1 factors and electrical conversion effic...</div>
+                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk, an image, likely contains a definition or explanation of WLTP, directly address...</div>
                             </div>
 
-                            <div class="retrieved-chunk" style="border-color:#ff9800;">
+                            <div class="retrieved-chunk" style="border-color:#42a5f5;">
                                 <div class="chunk-header">
-                                    <span class="chunk-id">ECE_TRANS_180a21e:49</span>
+                                    <span class="chunk-id">ECE_TRANS_180a22e:45</span>
                                     <span class="chunk-verdict verdict-related">RELATED</span>
                                 </div>
-                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk provides a related condition (b) that is part of the same list as condition (a) ...</div>
+                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk discusses the calculation of certified range for PEVs under WLTP, which is relat...</div>
                             </div>
 
                         </div>
                     </div>
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#66bb6a;"> Query 3: inverter input current voltage automotive</div>
+                        <div class="query-header" style="background:#ff9800;">Query 2: WLTP regulation vehicle power rating</div>
                         <div class="query-chunks">
 
-                            <div class="retrieved-chunk" style="border-color:#66bb6a;">
+                            <div class="retrieved-chunk" style="border-color:#ff9800;">
                                 <div class="chunk-header">
-                                    <span class="chunk-id">ECE_TRANS_180a21e:30</span>
+                                    <span class="chunk-id">ECE_TRANS_180a21e:73</span>
                                     <span class="chunk-verdict verdict-related">RELATED</span>
                                 </div>
-                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk provides a visual and contextual overview of a hybrid electric vehicle powertrai...</div>
+                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk discusses the validation and calculation of vehicle system power rating, which i...</div>
+                            </div>
+
+                            <div class="retrieved-chunk" style="border-color:#ff9800;">
+                                <div class="chunk-header">
+                                    <span class="chunk-id">ECE_TRANS_180a21e:68</span>
+                                    <span class="chunk-verdict verdict-related">RELATED</span>
+                                </div>
+                                <div style="font-size:0.8rem;color:#8b949e;">The candidate chunk mentions the calculation of vehicle system power rating within the context of WL...</div>
                             </div>
 
                         </div>
@@ -339,27 +340,34 @@
                     <span class="depth-badge">DEPTH 2</span>
                     <span class="depth-status status-complete">COMPLETE</span>
                 </div>
-                <p class="depth-explanation">The chunk provides sufficient context regarding the HEV powertrain architecture and component interconnections.</p>
-                <div class="queries-grid" style="grid-template-columns: repeat(3, 1fr);">
+                <p class="depth-explanation">The chunk describes the actions to be taken at the end of vehicle running, including recording operational metrics and stopping the vehicle and measurement devices, and refers to the next section on calculation of vehicle system power rating.</p>
+                <div class="queries-grid" style="grid-template-columns: repeat(4, 1fr);">
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#42a5f5;"> Query 1: REESS definition automotive</div>
+                        <div class="query-header" style="background:#42a5f5;">Query 1: TP1" vehicle system power rating</div>
                         <div class="query-chunks">
-<div class="no-chunks">No relevant chunks</div>
+<div class="no-chunks">No chunks retrieved</div>
                         </div>
                     </div>
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#ff9800;"> Query 2: K1comb factor definition</div>
+                        <div class="query-header" style="background:#ff9800;">Query 2: TP2" vehicle system power rating</div>
                         <div class="query-chunks">
-<div class="no-chunks">No relevant chunks</div>
+<div class="no-chunks">No chunks retrieved</div>
                         </div>
                     </div>
 
                     <div class="query-column">
-                        <div class="query-header" style="background:#66bb6a;"> Query 3: inverter efficiency automotive</div>
+                        <div class="query-header" style="background:#66bb6a;">Query 3: 6.9.3.3" power correction</div>
                         <div class="query-chunks">
-<div class="no-chunks">No relevant chunks</div>
+<div class="no-chunks">No chunks retrieved</div>
+                        </div>
+                    </div>
+
+                    <div class="query-column">
+                        <div class="query-header" style="background:#ec407a;">Query 4: dynamometer rollers efficiency calculation</div>
+                        <div class="query-chunks">
+<div class="no-chunks">No chunks retrieved</div>
                         </div>
                     </div>
 
@@ -371,13 +379,14 @@
         <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title"> Final Context (All Chunks)</div>
+            <div class="section-title">Final Context (All Chunks)</div>
             <div class="context-box">
                 <div class="context-chunks-list">
-<span class="context-chunk-tag">ECE_TRANS_180a21e:47 (INITIAL)</span>
-<span class="context-chunk-tag">ECE_TRANS_180a21e:51 (RELATED)</span>
-<span class="context-chunk-tag">ECE_TRANS_180a21e:49 (RELATED)</span>
-<span class="context-chunk-tag">ECE_TRANS_180a21e:30 (RELATED)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a21e:5 (INITIAL)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a21e:76 (EXPLANATORY)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a22e:45 (RELATED)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a21e:73 (RELATED)</span>
+<span class="context-chunk-tag">ECE_TRANS_180a21e:68 (RELATED)</span>
 
                 </div>
             </div>
@@ -386,23 +395,13 @@
         <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title"> Keyword Chain (Cross-Chunk Connections)</div>
+            <div class="section-title">Keyword Chain (Cross-Chunk Connections)</div>
             <div class="keyword-chain">
 
-                <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">REESS</span>
-                <span class="chain-arrow">-></span>
-                <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">REESS</span>
-                <span class="chain-relation">(energy storage)</span>
-
-                <span class="chain-kw" style="background:#ff980033;color:#ff9800;">inverter</span>
-                <span class="chain-arrow">-></span>
-                <span class="chain-kw" style="background:#ff980033;color:#ff9800;">inverter</span>
-                <span class="chain-relation">(power conversion)</span>
-
-                <span class="chain-kw" style="background:#66bb6a33;color:#66bb6a;">electrical conversion efficiency</span>
-                <span class="chain-arrow">-></span>
-                <span class="chain-kw" style="background:#66bb6a33;color:#66bb6a;">electrical conversion efficiency</span>
-                <span class="chain-relation">(energy loss)</span>
+                <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">vehicle power rating</span>
+                <span class="chain-arrow">-&gt;</span>
+                <span class="chain-kw" style="background:#42a5f533;color:#42a5f5;">vehicle system power rating</span>
+                <span class="chain-relation">(definition and application to different vehicle types)</span>
 
             </div>
         </div>
@@ -410,12 +409,12 @@
         <div class="flow-arrow">v</div>
 
         <div class="section">
-            <div class="section-title"> Generated Question & Answer</div>
+            <div class="section-title">Generated Question & Answer</div>
             <div class="qa-box">
                 <div class="qa-label question-label">Question:</div>
-                <div class="question-text">In a hybrid electric vehicle (HEV) where <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">current</span> and <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">voltage</span> at the output of the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">REESS</span> can be determined, what are the two possible methods for representing the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">REESS</span> and the reference point(s), and what components are considered in each method?</div>
+                <div class="question-text">For electrified vehicles with both an <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">internal combustion engine (ICE)</span> and <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electric machine(s)</span>, how should the <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">vehicle system power rating</span> be adjusted if the vehicle control system electrically compensates for variations in <span class="kw" style="background:#58a6ff;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">ICE power output</span> due to altitude or air temperature?</div>
                 <div class="qa-label answer-label">Answer:</div>
-                <div class="answer-text">One method uses a <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1comb factor</span> representing the combined <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> of the <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverters</span> and <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electric machines</span> between the <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">REESS</span> and the reference point(s). The other method uses a <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">K1 factor</span>, where the <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical conversion efficiency</span> between the input to each <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">inverter</span> and the corresponding reference point is identical.</div>
+                <div class="answer-text">If the vehicle control system adjusts the power output of <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electric machine(s)</span> to electrically compensate for variation in <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">ICE power output</span> due to altitude or air temperature, the amount of <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">electrical compensation</span> shall be subtracted from the <span class="kw" style="background:#3fb950;color:#000;padding:2px 6px;border-radius:4px;font-weight:600;">vehicle system power rating</span> after the power correction is performed.</div>
             </div>
         </div>
         
