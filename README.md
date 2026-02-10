@@ -8,6 +8,10 @@
 
 **MiRAGE** is a multi-agent framework for generating high-quality, multimodal, multihop question-answer datasets for evaluating Retrieval-Augmented Generation (RAG) systems.
 
+<p align="center">
+  <img src="assets/MiRAGE_15s.gif" alt="MiRAGE Process Demo" width="80%">
+</p>
+
 ### Multiagent Architecture
 
 <p align="center">
@@ -146,7 +150,7 @@ pipeline = MiRAGE(
     backend="gemini",
     api_key="your-key",
     num_qa_pairs=200,
-    max_depth=3,
+    max_depth=2,
     max_breadth=5,
     embedding_model="nomic",        # "auto", "nomic", "bge_m3", "gemini"
     reranker_model="gemini_vlm",    # "gemini_vlm", "monovlm", "text_embedding"
@@ -434,14 +438,14 @@ run_mirage -i data/documents -o output/results --skip-pdf-processing --skip-chun
 **Cost:** High (recursive LLM calls to expand context at each depth level)
 
 **Recommendation:**
-- Default is now `max_depth: 2` (previously 5)
-- Higher depths exponentially increase token usage with diminishing returns
-- Depth 2 captures most meaningful cross-document relationships
+- Default: `max_depth: 2`. Recommended value = 2.
+- Higher depth increases time, #tokens, API calls, and consequently costs from API service provider.
+- Depth 2 captures most meaningful cross-document relationships with diminishing returns beyond that.
 
 ```yaml
 # config.yaml
 context:
-  max_depth: 2  # Recommended: 2 (default: 5)
+  max_depth: 2  # Default and recommended. Higher = more time, tokens, API calls, and costs.
 ```
 
 Use `print_token_stats()` or check the pipeline summary to monitor actual token consumption.
@@ -458,7 +462,7 @@ Use `print_token_stats()` or check the pipeline summary to monitor actual token 
 | `--config` | `-c` | Config file path | config.yaml |
 | `--init-config` | | Generate a config.yaml in current directory | - |
 | `--num-qa-pairs` | | Target QA pairs to generate | 10 |
-| `--max-depth` | | Maximum depth for multi-hop retrieval | 2 |
+| `--max-depth` | | Maximum depth for multi-hop retrieval. Recommended = 2. Higher depth increases time, tokens, API calls, and costs. | 2 |
 | `--embedding-model` | | Embedding model: `auto`, `qwen3_vl`, `nomic`, `bge_m3` | auto |
 | `--reranker-model` | | Reranker model: `gemini_vlm`, `monovlm`, `text_embedding` | auto (based on backend) |
 | `--max-workers` | | Parallel workers | 4 |
