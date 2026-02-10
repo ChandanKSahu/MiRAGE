@@ -12,6 +12,13 @@
   <img src="assets/MiRAGE_15s.gif" alt="MiRAGE Process Demo" width="80%">
 </p>
 
+### Interactive Process Flow
+
+Explore the step-by-step multihop QA generation process:
+
+**[ View Interactive Visualization](https://htmlpreview.github.io/?https://github.com/ChandanKSahu/MiRAGE/blob/main/assets/mirage_qa_gen.html)**
+
+
 ### Multiagent Architecture
 
 <p align="center">
@@ -23,12 +30,6 @@
 <p align="center">
   <img src="assets/ample question-answer pair generated.png" alt="Sample QA Pair Generated" width="100%">
 </p>
-
-### Interactive Process Flow
-
-Explore the step-by-step multihop QA generation process:
-
-**[ View Interactive Visualization](https://htmlpreview.github.io/?https://github.com/ChandanKSahu/MiRAGE/blob/main/assets/mirage_qa_gen.html)**
 
 ## Key Features
 
